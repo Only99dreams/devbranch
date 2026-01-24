@@ -36,29 +36,38 @@ const Prayer = () => {
       fetchJoinRequests();
 
       // Subscribe to join requests
-      const channel = supabase
-        .channel("join_requests")
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "prayer_join_requests",
-            filter: `session_id=in.(${[...liveSessions, ...scheduledSessions].map(s => s.id).join(",")})`,
-          },
-          () => {
-            fetchJoinRequests();
-          }
-        )
-        .subscribe();
+      const sessionIds = [...liveSessions, ...scheduledSessions].map(s => s.id);
+      if (sessionIds.length > 0) {
+        const channel = supabase
+          .channel("join_requests")
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "prayer_join_requests",
+              filter: `session_id=in.(${sessionIds.join(",")})`,
+            },
+            () => {
+              fetchJoinRequests();
+            }
+          )
+          .subscribe();
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
+        return () => {
+          supabase.removeChannel(channel);
+        };
+      }
     }
   }, [liveSessions, scheduledSessions, user]);
 
   const fetchJoinRequests = async () => {
+    const sessionIds = [...liveSessions, ...scheduledSessions].map(s => s.id);
+    if (sessionIds.length === 0) {
+      setJoinRequests([]);
+      return;
+    }
+
     const { data, error } = await supabase
       .from("prayer_join_requests")
       .select(`
@@ -67,9 +76,12 @@ const Prayer = () => {
         user:profiles(full_name, email)
       `)
       .eq("status", "pending")
-      .in("session_id", [...liveSessions, ...scheduledSessions].map(s => s.id));
+      .in("session_id", sessionIds);
 
-    if (!error && data) {
+    if (error) {
+      console.warn("Join requests table not available:", error.message);
+      setJoinRequests([]);
+    } else if (data) {
       setJoinRequests(data);
     }
   };
@@ -107,7 +119,8 @@ const Prayer = () => {
         });
 
       if (error) {
-        toast({ title: "Error", description: "Failed to request to join", variant: "destructive" });
+        console.warn("Join requests feature not available:", error.message);
+        toast({ title: "Error", description: "This session requires permission but the feature is not available yet", variant: "destructive" });
       } else {
         toast({ title: "Request Sent", description: "Your join request has been sent to the session admin" });
       }
@@ -123,6 +136,11 @@ const Prayer = () => {
     setInRoom(true);
   };
 
+  const handleLeaveRoom = () => {
+    setInRoom(false);
+    setSelectedSession(null);
+  };
+
   const handleApproveRequest = async (request: any) => {
     // Update request status
     const { error: requestError } = await supabase
@@ -135,7 +153,8 @@ const Prayer = () => {
       .eq("id", request.id);
 
     if (requestError) {
-      toast({ title: "Error", description: "Failed to approve request", variant: "destructive" });
+      console.warn("Join requests feature not available:", requestError.message);
+      toast({ title: "Error", description: "Feature not available yet", variant: "destructive" });
       return;
     }
 
@@ -166,7 +185,8 @@ const Prayer = () => {
       .eq("id", requestId);
 
     if (error) {
-      toast({ title: "Error", description: "Failed to reject request", variant: "destructive" });
+      console.warn("Join requests feature not available:", error.message);
+      toast({ title: "Error", description: "Feature not available yet", variant: "destructive" });
     } else {
       toast({ title: "Rejected", description: "Request has been denied" });
       fetchJoinRequests();

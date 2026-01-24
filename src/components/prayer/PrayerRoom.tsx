@@ -198,7 +198,13 @@ export function PrayerRoom({ sessionId, onLeave }: PrayerRoomProps) {
       previewStream.getTracks().forEach(track => track.stop());
     }
     setShowPreview(false);
-    await joinSession(!previewMuted, previewVideoOn);
+    try {
+      await joinSession(!previewMuted, previewVideoOn);
+    } catch (error) {
+      console.error("Failed to join session:", error);
+      // If join fails, go back to preview
+      setShowPreview(true);
+    }
   };
 
   // Assign local stream to video element whenever stream or video state changes
@@ -273,6 +279,89 @@ export function PrayerRoom({ sessionId, onLeave }: PrayerRoomProps) {
               muted
               playsInline
               className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="text-center">
+                <VideoOff className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Video preview unavailable</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Controls */}
+        <div className="flex flex-wrap items-center justify-center gap-3 mt-4 md:mt-6">
+          <Button
+            variant={previewMuted ? "outline" : "gold"}
+            size="lg"
+            onClick={() => setPreviewMuted(!previewMuted)}
+            className="flex items-center gap-2"
+          >
+            {previewMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+            {previewMuted ? "Unmute" : "Mute"}
+          </Button>
+          <Button
+            variant={previewVideoOn ? "gold" : "outline"}
+            size="lg"
+            onClick={() => setPreviewVideoOn(!previewVideoOn)}
+            className="flex items-center gap-2"
+          >
+            {previewVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+            {previewVideoOn ? "Video On" : "Video Off"}
+          </Button>
+        </div>
+
+        {/* Join Button */}
+        <div className="mt-6 md:mt-8 flex gap-3">
+          <Button variant="outline" onClick={onLeave}>
+            Cancel
+          </Button>
+          <Button onClick={handleJoinNow} size="lg" className="bg-accent text-accent-foreground hover:bg-accent/90">
+            <Heart className="w-5 h-5 mr-2" />
+            Join Session
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // If not connected and not showing preview, show a retry screen
+  if (!isConnected && !showPreview) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] p-4">
+        <div className="text-center mb-4 md:mb-6">
+          <h3 className="text-xl md:text-2xl font-serif font-semibold mb-2">Connection Failed</h3>
+          <p className="text-muted-foreground text-sm md:text-base">Unable to join "{session?.title}"</p>
+        </div>
+
+        <div className="mt-6 md:mt-8 flex gap-3">
+          <Button variant="outline" onClick={onLeave}>
+            Leave Session
+          </Button>
+          <Button onClick={() => setShowPreview(true)} size="lg" className="bg-accent text-accent-foreground hover:bg-accent/90">
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] p-4">
+        <div className="text-center mb-4 md:mb-6">
+          <h3 className="text-xl md:text-2xl font-serif font-semibold mb-2">Ready to join?</h3>
+          <p className="text-muted-foreground text-sm md:text-base">"{session?.title}"</p>
+        </div>
+
+        {/* Preview Video */}
+        <div className="relative w-full max-w-lg aspect-video bg-muted rounded-2xl overflow-hidden shadow-lg">
+          {previewVideoOn && previewStream && previewStream.getVideoTracks().length > 0 ? (
+            <video
+              ref={previewVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
               style={{ transform: 'scaleX(-1)' }}
             />
           ) : (
@@ -322,8 +411,16 @@ export function PrayerRoom({ sessionId, onLeave }: PrayerRoomProps) {
     );
   }
 
-  if (!isConnected) {
-    return null;
+  // If session data is not loaded yet, show loading
+  if (!session) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-8rem)] md:h-[calc(100vh-10rem)]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading prayer session...</p>
+        </div>
+      </div>
+    );
   }
 
   const totalParticipants = participants.length + 1;
