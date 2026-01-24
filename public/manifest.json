@@ -1,0 +1,25 @@
+{
+  "name": "Home of Super Stars",
+  "short_name": "Super Stars",
+  "description": "Join our community for live services, prayer sessions, and spiritual growth",
+  "theme_color": "#3b4f8a",
+  "background_color": "#fdfcf9",
+  "display": "standalone",
+  "scope": "/",
+  "start_url": "/",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
