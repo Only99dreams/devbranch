@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { 
   Mic, MicOff, Video, VideoOff, Hand, PhoneOff, Users, 
-  MessageSquare, Send, MoreVertical, X
+  MessageSquare, Send, MoreVertical, X, Heart
 } from "lucide-react";
 import { usePrayerRoom } from "@/hooks/usePrayerSession";
 

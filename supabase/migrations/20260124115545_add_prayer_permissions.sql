@@ -13,7 +13,7 @@ CREATE TABLE public.prayer_join_requests (
   status join_request_status NOT NULL DEFAULT 'pending',
   requested_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   responded_at TIMESTAMP WITH TIME ZONE,
-  responded_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  responded_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   UNIQUE (session_id, user_id)
 );
 
