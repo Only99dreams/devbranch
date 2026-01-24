@@ -120,12 +120,25 @@ const Prayer = () => {
 
     if (session.requires_permission && session.created_by !== user.id) {
       try {
+        // Get the user's profile ID
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (profileError || !profile) {
+          console.warn("Could not find user profile:", profileError?.message);
+          toast({ title: "Error", description: "Unable to create join request - profile not found", variant: "destructive" });
+          return;
+        }
+
         // Create join request
         const { error } = await supabase
           .from("prayer_join_requests")
           .insert({
             session_id: session.id,
-            user_id: user.id,
+            user_id: profile.id,
           });
 
         if (error) {
@@ -157,13 +170,26 @@ const Prayer = () => {
 
   const handleApproveRequest = async (request: any) => {
     try {
+      // Get the current user's profile ID
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("user_id", user?.id)
+        .single();
+
+      if (profileError || !profile) {
+        console.warn("Could not find user profile:", profileError?.message);
+        toast({ title: "Error", description: "Unable to approve request - profile not found", variant: "destructive" });
+        return;
+      }
+
       // Update request status
       const { error: requestError } = await supabase
         .from("prayer_join_requests")
         .update({
           status: "approved",
           responded_at: new Date().toISOString(),
-          responded_by: user?.id,
+          responded_by: profile.id,
         })
         .eq("id", request.id);
 
@@ -195,12 +221,25 @@ const Prayer = () => {
 
   const handleRejectRequest = async (requestId: string) => {
     try {
+      // Get the current user's profile ID
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("user_id", user?.id)
+        .single();
+
+      if (profileError || !profile) {
+        console.warn("Could not find user profile:", profileError?.message);
+        toast({ title: "Error", description: "Unable to reject request - profile not found", variant: "destructive" });
+        return;
+      }
+
       const { error } = await supabase
         .from("prayer_join_requests")
         .update({
           status: "denied",
           responded_at: new Date().toISOString(),
-          responded_by: user?.id,
+          responded_by: profile.id,
         })
         .eq("id", requestId);
 
