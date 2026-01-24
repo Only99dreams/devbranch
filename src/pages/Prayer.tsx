@@ -38,25 +38,29 @@ const Prayer = () => {
       // Subscribe to join requests
       const sessionIds = [...liveSessions, ...scheduledSessions].map(s => s.id);
       if (sessionIds.length > 0) {
-        const channel = supabase
-          .channel("join_requests")
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "prayer_join_requests",
-              filter: `session_id=in.(${sessionIds.join(",")})`,
-            },
-            () => {
-              fetchJoinRequests();
-            }
-          )
-          .subscribe();
+        try {
+          const channel = supabase
+            .channel("join_requests")
+            .on(
+              "postgres_changes",
+              {
+                event: "*",
+                schema: "public",
+                table: "prayer_join_requests",
+                filter: `session_id=in.(${sessionIds.join(",")})`,
+              },
+              () => {
+                fetchJoinRequests();
+              }
+            )
+            .subscribe();
 
-        return () => {
-          supabase.removeChannel(channel);
-        };
+          return () => {
+            supabase.removeChannel(channel);
+          };
+        } catch (err) {
+          console.warn("Failed to subscribe to join requests - table may not exist:", err);
+        }
       }
     }
   }, [liveSessions, scheduledSessions, user]);
@@ -68,21 +72,26 @@ const Prayer = () => {
       return;
     }
 
-    const { data, error } = await supabase
-      .from("prayer_join_requests")
-      .select(`
-        *,
-        session:prayer_sessions(title),
-        user:profiles(full_name, email)
-      `)
-      .eq("status", "pending")
-      .in("session_id", sessionIds);
+    try {
+      const { data, error } = await supabase
+        .from("prayer_join_requests")
+        .select(`
+          *,
+          session:prayer_sessions(title),
+          user:profiles(full_name, email)
+        `)
+        .eq("status", "pending")
+        .in("session_id", sessionIds);
 
-    if (error) {
-      console.warn("Join requests table not available:", error.message);
+      if (error) {
+        console.warn("Join requests feature not available:", error.message);
+        setJoinRequests([]);
+      } else if (data) {
+        setJoinRequests(data);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch join requests - table may not exist:", err);
       setJoinRequests([]);
-    } else if (data) {
-      setJoinRequests(data);
     }
   };
 
@@ -110,19 +119,24 @@ const Prayer = () => {
     }
 
     if (session.requires_permission && session.created_by !== user.id) {
-      // Create join request
-      const { error } = await supabase
-        .from("prayer_join_requests")
-        .insert({
-          session_id: session.id,
-          user_id: user.id,
-        });
+      try {
+        // Create join request
+        const { error } = await supabase
+          .from("prayer_join_requests")
+          .insert({
+            session_id: session.id,
+            user_id: user.id,
+          });
 
-      if (error) {
-        console.warn("Join requests feature not available:", error.message);
+        if (error) {
+          console.warn("Join requests feature not available:", error.message);
+          toast({ title: "Error", description: "This session requires permission but the feature is not available yet", variant: "destructive" });
+        } else {
+          toast({ title: "Request Sent", description: "Your join request has been sent to the session admin" });
+        }
+      } catch (err) {
+        console.warn("Failed to create join request - table may not exist:", err);
         toast({ title: "Error", description: "This session requires permission but the feature is not available yet", variant: "destructive" });
-      } else {
-        toast({ title: "Request Sent", description: "Your join request has been sent to the session admin" });
       }
       return;
     }
@@ -142,54 +156,64 @@ const Prayer = () => {
   };
 
   const handleApproveRequest = async (request: any) => {
-    // Update request status
-    const { error: requestError } = await supabase
-      .from("prayer_join_requests")
-      .update({
-        status: "approved",
-        responded_at: new Date().toISOString(),
-        responded_by: user?.id,
-      })
-      .eq("id", request.id);
+    try {
+      // Update request status
+      const { error: requestError } = await supabase
+        .from("prayer_join_requests")
+        .update({
+          status: "approved",
+          responded_at: new Date().toISOString(),
+          responded_by: user?.id,
+        })
+        .eq("id", request.id);
 
-    if (requestError) {
-      console.warn("Join requests feature not available:", requestError.message);
+      if (requestError) {
+        console.warn("Join requests feature not available:", requestError.message);
+        toast({ title: "Error", description: "Feature not available yet", variant: "destructive" });
+        return;
+      }
+
+      // Add to participants
+      const { error: participantError } = await supabase
+        .from("prayer_participants")
+        .insert({
+          session_id: request.session_id,
+          user_id: request.user_id,
+        });
+
+      if (participantError) {
+        toast({ title: "Error", description: "Failed to add participant", variant: "destructive" });
+      } else {
+        toast({ title: "Approved", description: "User has been added to the session" });
+        fetchJoinRequests();
+      }
+    } catch (err) {
+      console.warn("Failed to approve request - table may not exist:", err);
       toast({ title: "Error", description: "Feature not available yet", variant: "destructive" });
-      return;
-    }
-
-    // Add to participants
-    const { error: participantError } = await supabase
-      .from("prayer_participants")
-      .insert({
-        session_id: request.session_id,
-        user_id: request.user_id,
-      });
-
-    if (participantError) {
-      toast({ title: "Error", description: "Failed to add participant", variant: "destructive" });
-    } else {
-      toast({ title: "Approved", description: "User has been added to the session" });
-      fetchJoinRequests();
     }
   };
 
   const handleRejectRequest = async (requestId: string) => {
-    const { error } = await supabase
-      .from("prayer_join_requests")
-      .update({
-        status: "denied",
-        responded_at: new Date().toISOString(),
-        responded_by: user?.id,
-      })
-      .eq("id", requestId);
+    try {
+      const { error } = await supabase
+        .from("prayer_join_requests")
+        .update({
+          status: "denied",
+          responded_at: new Date().toISOString(),
+          responded_by: user?.id,
+        })
+        .eq("id", requestId);
 
-    if (error) {
-      console.warn("Join requests feature not available:", error.message);
+      if (error) {
+        console.warn("Join requests feature not available:", error.message);
+        toast({ title: "Error", description: "Feature not available yet", variant: "destructive" });
+      } else {
+        toast({ title: "Rejected", description: "Request has been denied" });
+        fetchJoinRequests();
+      }
+    } catch (err) {
+      console.warn("Failed to reject request - table may not exist:", err);
       toast({ title: "Error", description: "Feature not available yet", variant: "destructive" });
-    } else {
-      toast({ title: "Rejected", description: "Request has been denied" });
-      fetchJoinRequests();
     }
   };
 

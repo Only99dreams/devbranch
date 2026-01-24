@@ -346,6 +346,8 @@ export function PrayerRoom({ sessionId, onLeave }: PrayerRoomProps) {
       </div>
     );
   }
+
+  if (!isConnected && showPreview) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] p-4">
         <div className="text-center mb-4 md:mb-6">
