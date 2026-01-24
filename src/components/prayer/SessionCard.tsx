@@ -56,7 +56,7 @@ export function SessionCard({ session, isLive, participantCount = 0, onJoin }: S
           onClick={() => onJoin(session)}
         >
           <Heart className="w-4 h-4 mr-2" />
-          {isLive ? "Join Session" : "Register to Join"}
+          {session.requires_permission ? "Request to Join" : (isLive ? "Join Session" : "Register to Join")}
         </Button>
       </CardContent>
     </Card>

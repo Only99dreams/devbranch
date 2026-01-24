@@ -11,6 +11,7 @@ import { PrayerRoom } from "@/components/prayer/PrayerRoom";
 import { SessionCard } from "@/components/prayer/SessionCard";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 import type { Tables } from "@/integrations/supabase/types";
 
 type PrayerSession = Tables<"prayer_sessions">;
@@ -26,10 +27,52 @@ const Prayer = () => {
   const [videoEnabled, setVideoEnabled] = useState(false);
   const [inRoom, setInRoom] = useState(false);
   const [participantCounts, setParticipantCounts] = useState<Record<string, number>>({});
+  const [joinRequests, setJoinRequests] = useState<any[]>([]);
+  const [showRequestsDialog, setShowRequestsDialog] = useState(false);
 
   useEffect(() => {
     fetchParticipantCounts();
-  }, [liveSessions, scheduledSessions]);
+    if (user) {
+      fetchJoinRequests();
+
+      // Subscribe to join requests
+      const channel = supabase
+        .channel("join_requests")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "prayer_join_requests",
+            filter: `session_id=in.(${[...liveSessions, ...scheduledSessions].map(s => s.id).join(",")})`,
+          },
+          () => {
+            fetchJoinRequests();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [liveSessions, scheduledSessions, user]);
+
+  const fetchJoinRequests = async () => {
+    const { data, error } = await supabase
+      .from("prayer_join_requests")
+      .select(`
+        *,
+        session:prayer_sessions(title),
+        user:profiles(full_name, email)
+      `)
+      .eq("status", "pending")
+      .in("session_id", [...liveSessions, ...scheduledSessions].map(s => s.id));
+
+    if (!error && data) {
+      setJoinRequests(data);
+    }
+  };
 
   const fetchParticipantCounts = async () => {
     const allSessions = [...liveSessions, ...scheduledSessions];
@@ -47,12 +90,30 @@ const Prayer = () => {
     setParticipantCounts(counts);
   };
 
-  const handleJoinSession = (session: PrayerSession) => {
+  const handleJoinSession = async (session: PrayerSession) => {
     if (!user) {
       setSelectedSession(session);
       setShowSignInPrompt(true);
       return;
     }
+
+    if (session.requires_permission && session.created_by !== user.id) {
+      // Create join request
+      const { error } = await supabase
+        .from("prayer_join_requests")
+        .insert({
+          session_id: session.id,
+          user_id: user.id,
+        });
+
+      if (error) {
+        toast({ title: "Error", description: "Failed to request to join", variant: "destructive" });
+      } else {
+        toast({ title: "Request Sent", description: "Your join request has been sent to the session admin" });
+      }
+      return;
+    }
+
     setSelectedSession(session);
     setShowJoinDialog(true);
   };
@@ -62,9 +123,54 @@ const Prayer = () => {
     setInRoom(true);
   };
 
-  const handleLeaveRoom = () => {
-    setInRoom(false);
-    setSelectedSession(null);
+  const handleApproveRequest = async (request: any) => {
+    // Update request status
+    const { error: requestError } = await supabase
+      .from("prayer_join_requests")
+      .update({
+        status: "approved",
+        responded_at: new Date().toISOString(),
+        responded_by: user?.id,
+      })
+      .eq("id", request.id);
+
+    if (requestError) {
+      toast({ title: "Error", description: "Failed to approve request", variant: "destructive" });
+      return;
+    }
+
+    // Add to participants
+    const { error: participantError } = await supabase
+      .from("prayer_participants")
+      .insert({
+        session_id: request.session_id,
+        user_id: request.user_id,
+      });
+
+    if (participantError) {
+      toast({ title: "Error", description: "Failed to add participant", variant: "destructive" });
+    } else {
+      toast({ title: "Approved", description: "User has been added to the session" });
+      fetchJoinRequests();
+    }
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    const { error } = await supabase
+      .from("prayer_join_requests")
+      .update({
+        status: "denied",
+        responded_at: new Date().toISOString(),
+        responded_by: user?.id,
+      })
+      .eq("id", requestId);
+
+    if (error) {
+      toast({ title: "Error", description: "Failed to reject request", variant: "destructive" });
+    } else {
+      toast({ title: "Rejected", description: "Request has been denied" });
+      fetchJoinRequests();
+    }
   };
 
   if (inRoom && selectedSession) {
@@ -125,6 +231,25 @@ const Prayer = () => {
                   <LogIn className="w-4 h-4 mr-2" />
                   Sign In
                 </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {joinRequests.length > 0 && (
+            <Card className="mb-6 md:mb-8 border-blue-300 bg-blue-50 dark:bg-blue-950/20">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Users className="w-5 h-5 text-blue-600" />
+                    <div>
+                      <p className="font-medium">Join Requests Pending</p>
+                      <p className="text-sm text-muted-foreground">{joinRequests.length} request{joinRequests.length > 1 ? 's' : ''} to review</p>
+                    </div>
+                  </div>
+                  <Button onClick={() => setShowRequestsDialog(true)} variant="outline" size="sm">
+                    Review
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -283,6 +408,50 @@ const Prayer = () => {
                 Maybe Later
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Join Requests Dialog */}
+      <Dialog open={showRequestsDialog} onOpenChange={setShowRequestsDialog}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Join Requests</DialogTitle>
+            <DialogDescription>Manage requests to join your prayer sessions</DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4 max-h-96 overflow-y-auto">
+            {joinRequests.length === 0 ? (
+              <p className="text-center text-muted-foreground">No pending requests</p>
+            ) : (
+              joinRequests.map((request) => (
+                <Card key={request.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{request.user?.full_name || request.user?.email}</p>
+                        <p className="text-sm text-muted-foreground">Session: {request.session?.title}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRejectRequest(request.id)}
+                        >
+                          Reject
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleApproveRequest(request)}
+                        >
+                          Approve
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
           </div>
         </DialogContent>
       </Dialog>

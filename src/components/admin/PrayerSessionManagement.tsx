@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -41,6 +42,7 @@ export function PrayerSessionManagement() {
     description: "",
     scheduled_at: "",
     max_participants: 100,
+    requires_permission: false,
   });
 
   useEffect(() => {
@@ -94,6 +96,7 @@ export function PrayerSessionManagement() {
       description: newSession.description,
       scheduled_at: newSession.scheduled_at || null,
       max_participants: newSession.max_participants,
+      requires_permission: newSession.requires_permission,
       created_by: user?.id,
       status: "scheduled" as SessionStatus,
     });
@@ -103,7 +106,7 @@ export function PrayerSessionManagement() {
     } else {
       toast({ title: "Success", description: "Prayer session created" });
       setShowCreateDialog(false);
-      setNewSession({ title: "", description: "", scheduled_at: "", max_participants: 100 });
+      setNewSession({ title: "", description: "", scheduled_at: "", max_participants: 100, requires_permission: false });
     }
   };
 
@@ -274,6 +277,16 @@ export function PrayerSessionManagement() {
                   onChange={(e) => setNewSession((prev) => ({ ...prev, max_participants: parseInt(e.target.value) || 100 }))}
                 />
               </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="requires_permission"
+                checked={newSession.requires_permission}
+                onCheckedChange={(checked) => setNewSession((prev) => ({ ...prev, requires_permission: !!checked }))}
+              />
+              <label htmlFor="requires_permission" className="text-sm font-medium">
+                Require admin permission to join
+              </label>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
