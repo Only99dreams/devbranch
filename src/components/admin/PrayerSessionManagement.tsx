@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Heart, Play, Square, Users, Plus, Calendar } from "lucide-react";
+import { Heart, Play, Square, Users, Plus, Calendar, Shield } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
@@ -278,14 +277,22 @@ export function PrayerSessionManagement() {
                 />
               </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+              <input
+                type="checkbox"
                 id="requires_permission"
                 checked={newSession.requires_permission}
-                onCheckedChange={(checked) => setNewSession((prev) => ({ ...prev, requires_permission: !!checked }))}
+                onChange={(e) => setNewSession((prev) => ({ ...prev, requires_permission: e.target.checked }))}
+                className="w-4 h-4 accent-accent"
               />
-              <label htmlFor="requires_permission" className="text-sm font-medium">
-                Require admin permission to join
+              <label htmlFor="requires_permission" className="flex-1 cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-accent" />
+                  <span className="text-sm font-medium">Require Permission</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Users must request and be approved before joining this session
+                </p>
               </label>
             </div>
             <div className="flex justify-end gap-2">

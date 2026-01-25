@@ -24,6 +24,7 @@ import { StreamManagement } from "@/components/admin/StreamManagement";
 import { MediaManagement } from "@/components/admin/MediaManagement";
 import { Analytics } from "@/components/admin/Analytics";
 import { PrayerSessionManagement } from "@/components/admin/PrayerSessionManagement";
+import { JoinRequestsManagement } from "@/components/admin/JoinRequestsManagement";
 import { DownloadRequestsManagement } from "@/components/admin/DownloadRequestsManagement";
 import { FeedbackManagement } from "@/components/admin/FeedbackManagement";
 
@@ -219,7 +220,11 @@ const AdminDashboard = () => {
           </TabsContent>
 
           <TabsContent value="prayer">
-            <PrayerSessionManagement />
+        
+          <div className="space-y-6">
+              <JoinRequestsManagement />
+              <PrayerSessionManagement />
+            </div>
           </TabsContent>
 
           <TabsContent value="media">
