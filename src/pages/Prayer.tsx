@@ -35,12 +35,13 @@ const Prayer = () => {
     if (user) {
       fetchJoinRequests();
 
-      // Subscribe to join requests
+      // Subscribe to join requests for sessions the user created
       const sessionIds = [...liveSessions, ...scheduledSessions].map(s => s.id);
+      let channel1: any = null;
       if (sessionIds.length > 0) {
         try {
-          const channel = supabase
-            .channel("join_requests")
+          channel1 = supabase
+            .channel("join_requests_admin")
             .on(
               "postgres_changes",
               {
@@ -54,14 +55,40 @@ const Prayer = () => {
               }
             )
             .subscribe();
-
-          return () => {
-            supabase.removeChannel(channel);
-          };
         } catch (err) {
           console.warn("Failed to subscribe to join requests - table may not exist:", err);
         }
       }
+
+      // Subscribe to changes in user's own join requests
+      let channel2: any = null;
+      try {
+        channel2 = supabase
+          .channel("join_requests_user")
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "prayer_join_requests",
+            },
+            (payload) => {
+              // Check if this affects the user's requests
+              if (payload.new && (payload.new as any).user_id) {
+                // Refetch to update UI
+                fetchJoinRequests();
+              }
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.warn("Failed to subscribe to user join requests - table may not exist:", err);
+      }
+
+      return () => {
+        if (channel1) supabase.removeChannel(channel1);
+        if (channel2) supabase.removeChannel(channel2);
+      };
     }
   }, [liveSessions, scheduledSessions, user]);
 
@@ -133,7 +160,32 @@ const Prayer = () => {
           return;
         }
 
-        // Create join request
+        // Check for existing join request
+        const { data: existingRequest, error: checkError } = await supabase
+          .from("prayer_join_requests")
+          .select("status")
+          .eq("session_id", session.id)
+          .eq("user_id", profile.id)
+          .single();
+
+        if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "not found"
+          console.warn("Error checking existing request:", checkError.message);
+        } else if (existingRequest) {
+          if (existingRequest.status === 'approved') {
+            // User has approved request, allow them to join directly
+            setSelectedSession(session);
+            setShowJoinDialog(true);
+            return;
+          } else if (existingRequest.status === 'pending') {
+            toast({ title: "Request Pending", description: "Your join request is still pending approval" });
+            return;
+          } else if (existingRequest.status === 'denied') {
+            toast({ title: "Request Denied", description: "Your join request was denied. You cannot join this session." });
+            return;
+          }
+        }
+
+        // No existing request or table doesn't exist, create a new request
         const { error } = await supabase
           .from("prayer_join_requests")
           .insert({
@@ -186,12 +238,23 @@ const Prayer = () => {
         return;
       }
 
-      // Add to participants
+      // Add to participants - need to get the auth user id from profile
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("user_id")
+        .eq("id", request.user_id)
+        .single();
+
+      if (profileError || !profile) {
+        toast({ title: "Error", description: "Failed to find user profile", variant: "destructive" });
+        return;
+      }
+
       const { error: participantError } = await supabase
         .from("prayer_participants")
         .insert({
           session_id: request.session_id,
-          user_id: request.user_id,
+          user_id: profile.user_id,
         });
 
       if (participantError) {
