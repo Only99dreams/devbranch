@@ -118,9 +118,13 @@ export function useJoinRequests(sessionId?: string) {
       .single();
 
     if (error) {
-      if (error.code === "23505") {
+      // Check for duplicate key constraint violation
+      if (error.code === "23505" || error.message?.includes("duplicate") || error.message?.includes("unique")) {
         toast({ title: "Already Requested", description: "You've already submitted a request for this session" });
+        // Refetch to get the existing request
+        await fetchRequests();
       } else {
+        console.error("Error submitting join request:", error);
         toast({ title: "Error", description: "Failed to submit request", variant: "destructive" });
       }
       return false;
