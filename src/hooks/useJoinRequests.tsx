@@ -28,7 +28,8 @@ export function useJoinRequests(sessionId?: string) {
     }
 
     fetchRequests();
-    subscribeToRequests();
+    const cleanup = subscribeToRequests();
+    return cleanup;
   }, [sessionId, user]);
 
   const fetchRequests = async () => {
@@ -208,7 +209,8 @@ export function useAllPendingJoinRequests() {
     }
 
     fetchAllRequests();
-    subscribeToAllRequests();
+    const cleanup = subscribeToAllRequests();
+    return cleanup;
   }, [user]);
 
   const fetchAllRequests = async () => {

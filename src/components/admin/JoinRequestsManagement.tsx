@@ -104,72 +104,129 @@ export function JoinRequestsManagement() {
             </p>
           </div>
         ) : (
-          <ScrollArea className="max-h-[400px]">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Session</TableHead>
-                  <TableHead>Requested</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {requests.map((request) => (
-                  <TableRow key={request.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar className="w-8 h-8">
-                          <AvatarImage src={request.profile?.avatar_url || undefined} />
-                          <AvatarFallback className="text-xs bg-accent/20 text-accent">
-                            {request.profile?.full_name?.[0] || "?"}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium text-sm">
-                            {request.profile?.full_name || "Unknown User"}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {request.profile?.email}
-                          </p>
+          <div className="space-y-4">
+            {/* Mobile Card View */}
+            <div className="block md:hidden space-y-3">
+              {requests.map((request) => (
+                <Card key={request.id} className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      <Avatar className="w-10 h-10">
+                        <AvatarImage src={request.profile?.avatar_url || undefined} />
+                        <AvatarFallback className="bg-accent/20 text-accent">
+                          {request.profile?.full_name?.[0] || "?"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">
+                          {request.profile?.full_name || "Unknown User"}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {request.profile?.email}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {request.session?.title || "Unknown Session"}
+                        </p>
+                        <div className="flex items-center gap-1 text-muted-foreground text-xs mt-1">
+                          <Clock className="w-3 h-3" />
+                          {format(new Date(request.requested_at), "MMM d, h:mm a")}
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm">{request.session?.title || "Unknown Session"}</span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-muted-foreground text-sm">
-                        <Clock className="w-3 h-3" />
-                        {format(new Date(request.requested_at), "MMM d, h:mm a")}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => handleDeny(request.id)}
-                          disabled={processing === request.id}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="bg-accent text-accent-foreground hover:bg-accent/90"
-                          onClick={() => handleApprove(request.id)}
-                          disabled={processing === request.id}
-                        >
-                          <Check className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </ScrollArea>
+                    </div>
+                    <div className="flex gap-2 ml-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10 p-2"
+                        onClick={() => handleDeny(request.id)}
+                        disabled={processing === request.id}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-accent text-accent-foreground hover:bg-accent/90 p-2"
+                        onClick={() => handleApprove(request.id)}
+                        disabled={processing === request.id}
+                      >
+                        <Check className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden md:block">
+              <ScrollArea className="max-h-[400px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>Session</TableHead>
+                      <TableHead>Requested</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {requests.map((request) => (
+                      <TableRow key={request.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="w-8 h-8">
+                              <AvatarImage src={request.profile?.avatar_url || undefined} />
+                              <AvatarFallback className="text-xs bg-accent/20 text-accent">
+                                {request.profile?.full_name?.[0] || "?"}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium text-sm">
+                                {request.profile?.full_name || "Unknown User"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {request.profile?.email}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm">{request.session?.title || "Unknown Session"}</span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-muted-foreground text-sm">
+                            <Clock className="w-3 h-3" />
+                            {format(new Date(request.requested_at), "MMM d, h:mm a")}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDeny(request.id)}
+                              disabled={processing === request.id}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="bg-accent text-accent-foreground hover:bg-accent/90"
+                              onClick={() => handleApprove(request.id)}
+                              disabled={processing === request.id}
+                            >
+                              <Check className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>
