@@ -27,6 +27,7 @@ import { PrayerSessionManagement } from "@/components/admin/PrayerSessionManagem
 import { JoinRequestsManagement } from "@/components/admin/JoinRequestsManagement";
 import { DownloadRequestsManagement } from "@/components/admin/DownloadRequestsManagement";
 import { PrayerRequestsManagement } from "@/components/admin/PrayerRequestsManagement";
+import { FeedbackManagement } from "@/components/admin/FeedbackManagement";
 
 interface Stats {
   totalUsers: number;
