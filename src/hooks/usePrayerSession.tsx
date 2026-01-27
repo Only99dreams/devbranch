@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
@@ -50,8 +50,15 @@ export function usePrayerSessions() {
     setLoading(false);
   };
 
-  const liveSessions = sessions.filter((s) => s.status === "active");
-  const scheduledSessions = sessions.filter((s) => s.status === "scheduled");
+  const liveSessions = useMemo(() => 
+    sessions.filter((s) => s.status === "active"), 
+    [sessions]
+  );
+  
+  const scheduledSessions = useMemo(() => 
+    sessions.filter((s) => s.status === "scheduled"), 
+    [sessions]
+  );
 
   return { sessions, liveSessions, scheduledSessions, loading, refetch: fetchSessions };
 }

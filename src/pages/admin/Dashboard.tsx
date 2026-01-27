@@ -26,7 +26,7 @@ import { Analytics } from "@/components/admin/Analytics";
 import { PrayerSessionManagement } from "@/components/admin/PrayerSessionManagement";
 import { JoinRequestsManagement } from "@/components/admin/JoinRequestsManagement";
 import { DownloadRequestsManagement } from "@/components/admin/DownloadRequestsManagement";
-import { FeedbackManagement } from "@/components/admin/FeedbackManagement";
+import { PrayerRequestsManagement } from "@/components/admin/PrayerRequestsManagement";
 
 interface Stats {
   totalUsers: number;
@@ -222,6 +222,7 @@ const AdminDashboard = () => {
           <TabsContent value="prayer">
         
           <div className="space-y-6">
+              <PrayerRequestsManagement />
               <JoinRequestsManagement />
               <PrayerSessionManagement />
             </div>

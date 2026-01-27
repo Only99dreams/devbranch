@@ -109,6 +109,41 @@ export type Database = {
           updated_at?: string
         }
       }
+      prayer_requests: {
+        Row: {
+          id: string
+          full_name: string
+          email: string
+          phone: string | null
+          request_text: string
+          doctors_report_url: string | null
+          status: Database["public"]["Enums"]["prayer_request_status"]
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          full_name: string
+          email: string
+          phone?: string | null
+          request_text: string
+          doctors_report_url?: string | null
+          status?: Database["public"]["Enums"]["prayer_request_status"]
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          full_name?: string
+          email?: string
+          phone?: string | null
+          request_text?: string
+          doctors_report_url?: string | null
+          status?: Database["public"]["Enums"]["prayer_request_status"]
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never
@@ -125,6 +160,7 @@ export type Database = {
       download_request_status: 'pending' | 'approved' | 'denied'
       feedback_type: 'inquiry' | 'feedback' | 'complaint'
       join_request_status: 'pending' | 'approved' | 'denied'
+      prayer_request_status: 'pending' | 'reviewed' | 'prayed_for'
     }
   }
 }

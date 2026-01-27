@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { usePrayerSessions } from "@/hooks/usePrayerSession";
 import { useJoinRequests } from "@/hooks/useJoinRequests";
 import { PrayerRoom } from "@/components/prayer/PrayerRoom";
 import { SessionCard } from "@/components/prayer/SessionCard";
-import { JoinRequestStatus } from "@/components/prayer/JoinRequestStatus";
+import { PrayerRequestForm } from "@/components/prayer/PrayerRequestForm";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -28,6 +28,7 @@ const Prayer = () => {
   const [inRoom, setInRoom] = useState(false);
   const [participantCounts, setParticipantCounts] = useState<Record<string, number>>({});
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [showPrayerRequestForm, setShowPrayerRequestForm] = useState(false);
 
   // Join request hook for the selected session
   const { myRequest, submitRequest, refetch: refetchRequest } = useJoinRequests(selectedSession?.id);
@@ -36,7 +37,7 @@ const Prayer = () => {
     fetchParticipantCounts();
   }, [liveSessions, scheduledSessions]);
 
-  const fetchParticipantCounts = async () => {
+  const fetchParticipantCounts = useCallback(async () => {
     const allSessions = [...liveSessions, ...scheduledSessions];
     const counts: Record<string, number> = {};
     
@@ -50,7 +51,7 @@ const Prayer = () => {
     }
     
     setParticipantCounts(counts);
-  };
+  }, [liveSessions, scheduledSessions]);
 
   const handleJoinSession = (session: PrayerSession) => {
     if (!user) {
@@ -122,7 +123,7 @@ const Prayer = () => {
               <Heart className="w-5 h-5" />
               Join Live Prayer
             </Button>
-            <Button variant="hero-outline" size="lg">
+            <Button variant="hero-outline" size="lg" onClick={() => setShowPrayerRequestForm(true)}>
               Submit Prayer Request
             </Button>
           </div>
@@ -263,6 +264,12 @@ const Prayer = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Prayer Request Form */}
+      <PrayerRequestForm
+        open={showPrayerRequestForm}
+        onClose={() => setShowPrayerRequestForm(false)}
+      />
     </Layout>
   );
 };
