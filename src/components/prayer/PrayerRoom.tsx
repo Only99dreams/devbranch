@@ -616,7 +616,7 @@ export function PrayerRoom({ sessionId, onLeave }: PrayerRoomProps) {
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">
-                          {p.profile?.full_name || "Anonymous"}
+                          {p.profile?.full_name || "Participant"}
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
@@ -804,7 +804,7 @@ function ParticipantVideo({ participant, stream }: ParticipantVideoProps) {
       <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
         <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/70 backdrop-blur-sm">
           <span className="text-white text-xs md:text-sm font-medium truncate max-w-[100px] md:max-w-[200px]">
-            {participant.profile?.full_name || "Anonymous"}
+            {participant.profile?.full_name || "Participant"}
           </span>
           {participant.is_muted ? (
             <MicOff className="w-3 h-3 text-red-400 shrink-0" />
