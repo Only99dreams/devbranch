@@ -373,6 +373,50 @@ export function usePrayerRoom(sessionId: string | null) {
     }
 
     try {
+      // Ensure session data is loaded
+      let currentSession = session;
+      if (!currentSession) {
+        const { data: sessionData } = await supabase
+          .from("prayer_sessions")
+          .select("*")
+          .eq("id", sessionId)
+          .single();
+        currentSession = sessionData;
+        if (sessionData) {
+          setSession(sessionData);
+        }
+      }
+
+      // Check if session requires permission
+      if (currentSession?.requires_permission && currentSession.created_by !== user.id) {
+        // Check if user has an approved join request
+        const { data: request, error } = await supabase
+          .from("prayer_join_requests")
+          .select("status")
+          .eq("session_id", sessionId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (error) {
+          console.error("Error checking join request:", error);
+          toast({ 
+            title: "Error", 
+            description: "Failed to verify permissions. Please try again.", 
+            variant: "destructive" 
+          });
+          return;
+        }
+
+        if (!request || request.status !== "approved") {
+          toast({ 
+            title: "Permission Required", 
+            description: "This session requires permission from the session creator. Please submit a join request first.", 
+            variant: "destructive" 
+          });
+          return;
+        }
+      }
+
       // WebRTC requires secure context (HTTPS) on mobile browsers
       if (!window.isSecureContext && window.location.hostname !== "localhost") {
         throw new Error("Secure connection required. Please use HTTPS (or localhost) to allow camera/mic access.");
