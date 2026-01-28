@@ -53,9 +53,7 @@ type RecordingStatus = Enums<"recording_status">;
 type StreamSource = "camera" | "external";
 
 export function StreamManagement() {
-  console.log("StreamManagement component rendering");
   const { user } = useAuth();
-  console.log("User:", user);
   
   const {
     isStreaming,
@@ -68,7 +66,6 @@ export function StreamManagement() {
     startRecording,
     stopRecording,
   } = useLiveStream();
-  console.log("useLiveStream hook executed successfully");
 
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
   const [streams, setStreams] = useState<LiveStream[]>([]);
@@ -409,10 +406,8 @@ export function StreamManagement() {
     }
   };
 
-  try {
-    return (
-      <div className="space-y-6">
-        <div>DEBUG: StreamManagement is rendering</div>
+  return (
+    <div className="space-y-6">
       {/* Go Live Section */}
       {isStreaming ? (
         <Card className="border-destructive/50 bg-destructive/5">
@@ -1005,12 +1000,4 @@ export function StreamManagement() {
       </Dialog>
     </div>
   );
-  } catch (error) {
-    console.error("Error in StreamManagement:", error);
-    return (
-      <div className="space-y-6">
-        <div className="text-red-500">Error loading StreamManagement: {error instanceof Error ? error.message : 'Unknown error'}</div>
-      </div>
-    );
-  }
 }

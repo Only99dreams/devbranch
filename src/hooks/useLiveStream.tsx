@@ -53,6 +53,10 @@ export function useLiveStream() {
   const recordedChunksRef = useRef<Blob[]>([]);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
+  const updateViewerCount = useCallback(() => {
+    setState(prev => ({ ...prev, viewerCount: peerConnectionsRef.current.size }));
+  }, []);
+
   // Handle WebRTC signaling for broadcaster
   const handleViewerSignal = useCallback(async (payload: any) => {
     const { type, from, signal } = payload.payload;
@@ -120,10 +124,6 @@ export function useLiveStream() {
       }
     }
   }, [user]);
-
-  const updateViewerCount = useCallback(() => {
-    setState(prev => ({ ...prev, viewerCount: peerConnectionsRef.current.size }));
-  }, []);
 
   const startStream = useCallback(async (title: string, description?: string, externalUrl?: string) => {
     try {
