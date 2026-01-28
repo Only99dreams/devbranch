@@ -84,6 +84,40 @@ export function useLiveStream() {
     }
   }, [toast]);
 
+  // Helper to build a Blob from recorded chunks
+  const getRecordedBlob = useCallback(() => {
+    if (recordedChunksRef.current.length === 0) return null;
+    return new Blob(recordedChunksRef.current, { type: "video/webm" });
+  }, []);
+
+  // Upload a recorded Blob to Supabase storage and update the live_streams record
+  const uploadRecordingBlob = useCallback(async (streamId: string, blob: Blob) => {
+    try {
+      const fileName = `recordings/${streamId}_${Date.now()}.webm`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("media")
+        .upload(fileName, blob);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from("media").getPublicUrl(fileName);
+      const publicUrl = (urlData as any)?.publicUrl || null;
+
+      if (publicUrl) {
+        await supabase
+          .from("live_streams")
+          .update({ recording_url: publicUrl, recording_status: "saved" })
+          .eq("id", streamId);
+      }
+
+      return publicUrl;
+    } catch (err) {
+      console.error("Failed to upload recording:", err);
+      throw err;
+    }
+  }, []);
+
   const stopStream = useCallback(async (saveRecording: boolean = false) => {
     try {
       // Stop local stream
@@ -96,9 +130,40 @@ export function useLiveStream() {
       peerConnectionsRef.current.forEach(pc => pc.close());
       peerConnectionsRef.current.clear();
 
-      // Stop recording if active
+      // Stop recording if active. If saveRecording is requested, wait for
+      // recorder to finish and upload the resulting blob, otherwise just stop.
       if (mediaRecorderRef.current && state.isRecording) {
-        mediaRecorderRef.current.stop();
+        if (saveRecording && state.streamId) {
+          const mr = mediaRecorderRef.current;
+
+          await new Promise<void>((resolve) => {
+            const prev = mr.onstop;
+            mr.onstop = () => {
+              if (prev) try { (prev as any)(); } catch {}
+              resolve();
+            };
+            try {
+              mr.stop();
+            } catch (e) {
+              console.warn("Error stopping MediaRecorder during stopStream:", e);
+              resolve();
+            }
+          });
+
+          // upload blob if available
+          const blob = getRecordedBlob();
+          if (blob) {
+            try {
+              await uploadRecordingBlob(state.streamId, blob);
+              recordedChunksRef.current = [];
+            } catch (err) {
+              console.error("Failed to upload recording on stream end:", err);
+            }
+          }
+        } else {
+          try { mediaRecorderRef.current.stop(); } catch {}
+        }
+        mediaRecorderRef.current = null;
       }
 
       // Update stream status in database
@@ -134,7 +199,7 @@ export function useLiveStream() {
         variant: "destructive",
       });
     }
-  }, [state.streamId, state.isRecording, toast]);
+  }, [state.streamId, state.isRecording, toast, getRecordedBlob, uploadRecordingBlob]);
 
   const startRecording = useCallback(() => {
     if (!localStreamRef.current) return;
@@ -149,6 +214,11 @@ export function useLiveStream() {
         if (event.data.size > 0) {
           recordedChunksRef.current.push(event.data);
         }
+      };
+
+      // Keep a handler for onstop; callers will await this event when finalizing uploads
+      mediaRecorder.onstop = () => {
+        console.log("MediaRecorder stopped, recorded chunks:", recordedChunksRef.current.length);
       };
 
       mediaRecorder.start(1000);
@@ -170,23 +240,44 @@ export function useLiveStream() {
     }
   }, [toast]);
 
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-      setState(prev => ({ ...prev, isRecording: false }));
+  // Async stopRecording: wait for recorder to finish, then upload and update DB
+  const stopRecording = useCallback(async () => {
+    if (!mediaRecorderRef.current) return;
 
-      toast({
-        title: "Recording Stopped",
-        description: "Recording has been saved.",
-      });
+    const mr = mediaRecorderRef.current;
+
+    // Await the onstop event
+    await new Promise<void>((resolve) => {
+      const prev = mr.onstop;
+      mr.onstop = () => {
+        if (prev) try { (prev as any)(); } catch {}
+        resolve();
+      };
+      try {
+        mr.stop();
+      } catch (e) {
+        console.warn("Error stopping MediaRecorder:", e);
+        resolve();
+      }
+    });
+
+    mediaRecorderRef.current = null;
+    setState(prev => ({ ...prev, isRecording: false }));
+
+    toast({ title: "Recording Stopped", description: "Recording has been saved." });
+
+    if (state.streamId) {
+      const blob = getRecordedBlob();
+      if (blob) {
+        try {
+          await uploadRecordingBlob(state.streamId, blob);
+          recordedChunksRef.current = [];
+        } catch (err) {
+          toast({ title: "Error", description: "Failed to upload recording.", variant: "destructive" });
+        }
+      }
     }
-  }, [toast]);
-
-  const getRecordedBlob = useCallback(() => {
-    if (recordedChunksRef.current.length === 0) return null;
-    return new Blob(recordedChunksRef.current, { type: "video/webm" });
-  }, []);
+  }, [getRecordedBlob, state.streamId, toast, uploadRecordingBlob]);
 
   // Subscribe to realtime updates for viewer count
   useEffect(() => {
