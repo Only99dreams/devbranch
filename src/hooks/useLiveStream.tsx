@@ -60,6 +60,8 @@ export function useLiveStream() {
   const recordedChunksRef = useRef<Blob[]>([]);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  // Queue for viewers that attempt to join before our local media is ready
+  const pendingViewersRef = useRef<Set<string>>(new Set());
 
   const getRecordedBlob = useCallback(() => {
     if (recordedChunksRef.current.length === 0) return null;
@@ -175,13 +177,41 @@ export function useLiveStream() {
           filter: `stream_id=eq.${targetStreamId}`,
         },
         (payload) => {
-          console.log(`Broadcaster detected new viewer:`, payload.new);
+          console.log(`Broadcaster detected new viewer (INSERT):`, payload.new);
           const viewer = payload.new as any;
           // Only create connection if we have a local stream and viewer is joining now
           const currentState = stateRef.current;
           if (localStreamRef.current && currentState.isStreaming && !currentState.externalStreamUrl) {
             console.log(`Creating peer connection for viewer ${viewer.anon_id || viewer.user_id}`);
             createPeerConnection(viewer.anon_id || viewer.user_id);
+          } else {
+            // Queue the viewer until our local media is available
+            pendingViewersRef.current.add(viewer.anon_id || viewer.user_id);
+            console.log(`Queued pending viewer ${viewer.anon_id || viewer.user_id}`);
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "live_viewers",
+          filter: `stream_id=eq.${targetStreamId}`,
+        },
+        (payload) => {
+          console.log(`Broadcaster detected viewer update (UPDATE):`, payload.new);
+          const viewer = payload.new as any;
+          // Treat updates that re-open a join (left_at === null) as a join event
+          if (viewer && viewer.left_at === null) {
+            const currentState = stateRef.current;
+            if (localStreamRef.current && currentState.isStreaming && !currentState.externalStreamUrl) {
+              console.log(`Creating peer connection for viewer ${viewer.anon_id || viewer.user_id} (from UPDATE)`);
+              createPeerConnection(viewer.anon_id || viewer.user_id);
+            } else {
+              pendingViewersRef.current.add(viewer.anon_id || viewer.user_id);
+              console.log(`Queued pending viewer ${viewer.anon_id || viewer.user_id} (from UPDATE)`);
+            }
           }
         }
       )
@@ -489,6 +519,17 @@ export function useLiveStream() {
       });
     }
   }, [state.isStreaming, state.externalStreamUrl, state.streamKey]);
+
+  // If there were viewers waiting to join before our local media was ready, create connections now
+  useEffect(() => {
+    if (localStreamRef.current && stateRef.current.isStreaming && !stateRef.current.externalStreamUrl) {
+      for (const viewerId of Array.from(pendingViewersRef.current)) {
+        console.log(`Processing pending viewer ${viewerId}`);
+        pendingViewersRef.current.delete(viewerId);
+        createPeerConnection(viewerId);
+      }
+    }
+  }, [state.isStreaming, state.streamKey]);
 
   // Cleanup on unmount
   useEffect(() => {
