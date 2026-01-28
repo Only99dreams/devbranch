@@ -50,6 +50,11 @@ export function useLiveStream() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
 
+  const getRecordedBlob = useCallback(() => {
+    if (recordedChunksRef.current.length === 0) return null;
+    return new Blob(recordedChunksRef.current, { type: "video/webm" });
+  }, []);
+
   const startStream = useCallback(async (title: string, description?: string, externalUrl?: string) => {
     try {
       const generatedStreamKey = generateId();
