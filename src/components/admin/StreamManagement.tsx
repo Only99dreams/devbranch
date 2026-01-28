@@ -45,11 +45,11 @@ import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { useLiveStream } from "@/hooks/useLiveStream";
-import type { Tables, Enums } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/types";
 
-type LiveStream = Tables<"live_streams">;
-type StreamStatus = Enums<"stream_status">;
-type RecordingStatus = Enums<"recording_status">;
+type LiveStream = Database["public"]["Tables"]["live_streams"]["Row"];
+type StreamStatus = Database["public"]["Enums"]["stream_status"];
+type RecordingStatus = Database["public"]["Enums"]["recording_status"];
 type StreamSource = "camera" | "external";
 
 export function StreamManagement() {
@@ -123,7 +123,7 @@ export function StreamManagement() {
       previewStream.getTracks().forEach(track => track.stop());
       setPreviewStream(null);
     }
-  }, [showGoLiveDialog]);
+  }, [showGoLiveDialog, previewStream]);
 
   // Show video preview in the live section
   useEffect(() => {
@@ -524,10 +524,10 @@ export function StreamManagement() {
       <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Live Stream Management</CardTitle>
-        <Button onClick={() => setShowCreateDialog(true)} className="bg-accent text-accent-foreground hover:bg-accent/90">
+       {/* <Button onClick={() => setShowCreateDialog(true)} className="bg-accent text-accent-foreground hover:bg-accent/90">
           <Plus className="w-4 h-4 mr-2" />
           New Stream
-        </Button>
+        </Button> */}
       </CardHeader>
       <CardContent>
         {loading ? (

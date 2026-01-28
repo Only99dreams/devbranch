@@ -1,6 +1,82 @@
 export type Database = {
   public: {
     Tables: {
+      live_streams: {
+        Row: {
+          id: string
+          title: string
+          description: string | null
+          status: Database["public"]["Enums"]["stream_status"]
+          stream_key: string | null
+          external_stream_url: string | null
+          scheduled_at: string | null
+          started_at: string | null
+          ended_at: string | null
+          recording_url: string | null
+          recording_status: Database["public"]["Enums"]["recording_status"]
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          description?: string | null
+          status?: Database["public"]["Enums"]["stream_status"]
+          stream_key?: string | null
+          external_stream_url?: string | null
+          scheduled_at?: string | null
+          started_at?: string | null
+          ended_at?: string | null
+          recording_url?: string | null
+          recording_status?: Database["public"]["Enums"]["recording_status"]
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          description?: string | null
+          status?: Database["public"]["Enums"]["stream_status"]
+          stream_key?: string | null
+          external_stream_url?: string | null
+          scheduled_at?: string | null
+          started_at?: string | null
+          ended_at?: string | null
+          recording_url?: string | null
+          recording_status?: Database["public"]["Enums"]["recording_status"]
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      live_viewers: {
+        Row: {
+          id: string
+          stream_id: string
+          user_id: string | null
+          anon_id: string | null
+          joined_at: string
+          left_at: string | null
+        }
+        Insert: {
+          id?: string
+          stream_id: string
+          user_id?: string | null
+          anon_id?: string | null
+          joined_at?: string
+          left_at?: string | null
+        }
+        Update: {
+          id?: string
+          stream_id?: string
+          user_id?: string | null
+          anon_id?: string | null
+          joined_at?: string
+          left_at?: string | null
+        }
+      }
       prayer_sessions: {
         Row: {
           id: string
