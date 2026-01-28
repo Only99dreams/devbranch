@@ -228,7 +228,7 @@ const AdminDashboard = () => {
           <TabsContent value="prayer">
         
           <div className="space-y-6">
-              <PrayerRequestsManagement />
+             
               <JoinRequestsManagement />
               <PrayerSessionManagement />
             </div>
