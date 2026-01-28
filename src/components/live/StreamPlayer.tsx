@@ -142,14 +142,21 @@ export function StreamPlayer({
     }
   };
 
-  const togglePlay = () => {
-    if (videoRef.current) {
+  const togglePlay = async () => {
+    if (!videoRef.current) return;
+    try {
       if (videoRef.current.paused) {
-        videoRef.current.play();
+        await videoRef.current.play();
         setIsPlaying(true);
       } else {
         videoRef.current.pause();
         setIsPlaying(false);
+      }
+    } catch (err: any) {
+      if (err && err.name === "AbortError") {
+        console.warn("Video play() was aborted by a pause() or DOM removal.", err);
+      } else {
+        console.error(err);
       }
     }
   };

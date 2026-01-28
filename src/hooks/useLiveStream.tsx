@@ -27,6 +27,7 @@ export function useLiveStream() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const channelRef = useRef<any>(null);
+  const queuedIceMapRef = useRef<Map<string, any[]>>(new Map());
 
   const startStream = useCallback(async (title: string, description?: string, externalUrl?: string) => {
     try {
@@ -247,6 +248,17 @@ export function useLiveStream() {
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
 
+              // Flush any queued ICE candidates for this viewer
+              const queued = queuedIceMapRef.current.get(from) || [];
+              for (const c of queued) {
+                try {
+                  await pc.addIceCandidate(c);
+                } catch (err) {
+                  console.warn("Failed to add queued ICE to broadcaster PC:", err);
+                }
+              }
+              queuedIceMapRef.current.delete(from);
+
               // Send answer back to viewer
               channelRef.current?.send({
                 type: "broadcast",
@@ -261,6 +273,11 @@ export function useLiveStream() {
                 } catch (err) {
                   console.warn("Failed to add ICE candidate on broadcaster:", err);
                 }
+              } else if (p.signal) {
+                // Queue ICE until peer connection is created
+                const arr = queuedIceMapRef.current.get(p.from) || [];
+                arr.push(p.signal);
+                queuedIceMapRef.current.set(p.from, arr);
               }
             }
           }
@@ -301,6 +318,7 @@ export function useStreamViewer(streamId: string | null) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRefViewer = useRef<any>(null);
   const clientIdRef = useRef<string>(typeof crypto !== 'undefined' && (crypto as any).randomUUID ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2));
+  const queuedIceRef = useRef<any[]>([]);
 
   const handleSignal = useCallback(async (payload: any) => {
     const p = payload.payload || {};
@@ -313,13 +331,38 @@ export function useStreamViewer(streamId: string | null) {
     if (type === "answer") {
       if (!pcRef.current) return;
       try {
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(signal));
-        setIsConnected(true);
-      } catch (err) {
-        console.error("Error setting remote description (answer):", err);
+        // Only set remote description when we are in the expected state
+        // (we created the local offer). If we are not in 'have-local-offer',
+        // setting the remote answer will throw InvalidStateError; handle gracefully.
+        const state = pcRef.current.signalingState;
+        if (state === "have-local-offer" || state === "have-local-pranswer") {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(signal));
+          // flush queued ICE candidates
+          while (queuedIceRef.current.length > 0) {
+            const c = queuedIceRef.current.shift();
+            try {
+              await pcRef.current.addIceCandidate(c);
+            } catch (err) {
+              console.warn("Failed to add queued ICE candidate:", err);
+            }
+          }
+          setIsConnected(true);
+        } else {
+          console.warn("Received answer but signalingState is", state, "; ignoring to avoid InvalidStateError");
+        }
+      } catch (err: any) {
+        if (err && err.name === "InvalidStateError") {
+          console.warn("Ignored InvalidStateError when applying remote answer", err);
+        } else {
+          console.error("Error setting remote description (answer):", err);
+        }
       }
     } else if (type === "ice") {
-      if (!pcRef.current) return;
+      if (!pcRef.current) {
+        // Queue ICE until peer connection exists
+        queuedIceRef.current.push(signal);
+        return;
+      }
       try {
         await pcRef.current.addIceCandidate(signal);
       } catch (err) {
@@ -358,6 +401,15 @@ export function useStreamViewer(streamId: string | null) {
         }
       };
 
+      // Add recvonly transceivers so the SDP contains appropriate m-lines for receiving
+      try {
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+      } catch (e) {
+        // Some browsers may not support addTransceiver; it's optional
+        // Proceed without it if unavailable.
+      }
+
       // Viewer initiates the offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -368,6 +420,11 @@ export function useStreamViewer(streamId: string | null) {
         event: "webrtc-signal",
         payload: { type: "offer", from: clientIdRef.current, to: streamId, signal: offer },
       });
+
+      // If any ICE candidates were received early, try to add them after local description
+      if (queuedIceRef.current.length > 0) {
+        // Do not add yet — we wait for remote answer to be applied. Keep queued.
+      }
 
       setIsConnecting(false);
     } catch (err) {
