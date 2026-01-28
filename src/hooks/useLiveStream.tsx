@@ -50,6 +50,11 @@ export function useLiveStream() {
     externalStreamUrl: null,
   });
 
+  const stateRef = useRef<StreamState>(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
   const localStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
@@ -68,11 +73,13 @@ export function useLiveStream() {
 
     if (type === "viewer-join") {
       // New viewer wants to join - only create connection if we have a local stream
-      if (localStreamRef.current && state.isStreaming && !state.externalStreamUrl) {
+      // Use stateRef to get latest state (avoids stale closures)
+      const currentState = stateRef.current;
+      if (localStreamRef.current && currentState.isStreaming && !currentState.externalStreamUrl) {
         console.log(`Creating peer connection for viewer ${from}`);
         await createPeerConnection(from);
       } else {
-        console.log(`Cannot create peer connection: streaming=${state.isStreaming}, hasStream=${!!localStreamRef.current}, externalUrl=${state.externalStreamUrl}`);
+        console.log(`Cannot create peer connection: streaming=${currentState.isStreaming}, hasStream=${!!localStreamRef.current}, externalUrl=${currentState.externalStreamUrl}`);
       }
     } else if (type === "answer" && peerConnectionsRef.current.has(from)) {
       // Viewer sent answer to our offer
@@ -87,7 +94,7 @@ export function useLiveStream() {
         await pc.addIceCandidate(new RTCIceCandidate(signal));
       }
     }
-  }, [state.isStreaming, state.externalStreamUrl]);
+  }, []);
 
   const createPeerConnection = useCallback(async (viewerId: string) => {
     if (peerConnectionsRef.current.has(viewerId)) {
@@ -112,7 +119,7 @@ export function useLiveStream() {
         channelRef.current?.send({
           type: "broadcast",
           event: "stream-signal",
-          payload: { type: "ice-candidate", from: state.streamKey, to: viewerId, signal: event.candidate }
+          payload: { type: "ice-candidate", from: stateRef.current.streamKey, to: viewerId, signal: event.candidate }
         });
       }
     };
@@ -136,17 +143,21 @@ export function useLiveStream() {
       channelRef.current?.send({
         type: "broadcast",
         event: "stream-signal",
-        payload: { type: "offer", from: state.streamKey, to: viewerId, signal: offer }
+        payload: { type: "offer", from: stateRef.current.streamKey, to: viewerId, signal: offer }
       });
     } else {
       console.log(`No tracks available for offer creation`);
     }
-  }, [state.streamKey]);
+  }, []);
 
   const setupSignaling = useCallback((streamId?: string) => {
-    const targetStreamId = streamId || state.streamId;
-    if (!targetStreamId || !state.streamKey) {
-      console.log(`Cannot setup signaling: streamId=${targetStreamId}, streamKey=${state.streamKey}`);
+    // Use stateRef.current for latest streamId if not provided
+    const targetStreamId = streamId || stateRef.current.streamId;
+    // Use stateRef.current for latest streamKey
+    const currentStreamKey = stateRef.current.streamKey;
+
+    if (!targetStreamId || !currentStreamKey) {
+      console.log(`Cannot setup signaling: streamId=${targetStreamId}, streamKey=${currentStreamKey}`);
       return;
     }
 
@@ -167,7 +178,8 @@ export function useLiveStream() {
           console.log(`Broadcaster detected new viewer:`, payload.new);
           const viewer = payload.new as any;
           // Only create connection if we have a local stream and viewer is joining now
-          if (localStreamRef.current && state.isStreaming && !state.externalStreamUrl) {
+          const currentState = stateRef.current;
+          if (localStreamRef.current && currentState.isStreaming && !currentState.externalStreamUrl) {
             console.log(`Creating peer connection for viewer ${viewer.anon_id || viewer.user_id}`);
             createPeerConnection(viewer.anon_id || viewer.user_id);
           }
@@ -187,7 +199,7 @@ export function useLiveStream() {
 
     // Store viewers channel for cleanup
     (channelRef as any).viewersChannel = viewersChannel;
-  }, [state.streamId, state.streamKey, handleViewerSignal]);
+  }, [handleViewerSignal]);
 
   const cleanupSignaling = useCallback(() => {
     if (channelRef.current) {
