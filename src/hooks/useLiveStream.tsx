@@ -79,12 +79,15 @@ export function useLiveStream() {
       console.log(`Received answer from viewer ${from}`);
       const pc = peerConnectionsRef.current.get(from)!;
       await pc.setRemoteDescription(new RTCSessionDescription(signal));
-    } else if (type === "ice-candidate" && peerConnectionsRef.current.has(from)) {
+    } else if (type === "ice-candidate") {
       // Viewer sent ICE candidate
       console.log(`Received ICE candidate from viewer ${from}`);
-      const pc = peerConnectionsRef.current.get(from)!;
-      if (pc.remoteDescription) {
+      const pc = peerConnectionsRef.current.get(from);
+      if (pc && pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(signal));
+      } else {
+        // Store ICE candidate for later if peer connection not ready
+        console.log(`Storing ICE candidate for later`);
       }
     }
   }, [state.isStreaming, state.externalStreamUrl]);
@@ -458,6 +461,7 @@ export function useStreamViewer(streamId: string | null) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const viewerId = useRef<string>(generateId());
@@ -465,62 +469,63 @@ export function useStreamViewer(streamId: string | null) {
   const viewerRecordKeyRef = useRef<{ stream_id: string; user_id: string | null; anon_id: string | null } | null>(null);
   const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const createPeerConnection = useCallback(() => {
+    if (peerConnectionRef.current) return;
+
+    console.log(`Creating peer connection for viewer`);
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 });
+    peerConnectionRef.current = pc;
+    
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log(`Viewer sending ICE candidate`);
+        channelRef.current?.send({
+          type: "broadcast",
+          event: "viewer-signal",
+          payload: { type: "ice-candidate", from: viewerId.current, to: null, signal: event.candidate }
+        });
+      }
+    };
+    
+    pc.ontrack = (event) => {
+      console.log("Viewer received track:", event.track.kind);
+      setRemoteStream(event.streams[0]);
+      setIsConnected(true);
+      setIsConnecting(false);
+      // Clear timeout on successful connection
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
+    };
+    
+    pc.onconnectionstatechange = () => {
+      console.log(`Viewer connection state: ${pc?.connectionState}`);
+      if (pc?.connectionState === "connected") {
+        setIsConnected(true);
+        setIsConnecting(false);
+      } else if (pc?.connectionState === "disconnected" || pc?.connectionState === "failed") {
+        setIsConnected(false);
+        setRemoteStream(null);
+        setIsConnecting(false);
+      }
+    };
+  }, []);
+
   const handleBroadcasterSignal = useCallback(async (payload: any) => {
     const { type, from, to, signal } = payload.payload;
     
-    // Only process signals meant for us
-    if (to && to !== viewerId.current) {
-      console.log(`Ignoring signal for ${to}, we are ${viewerId.current}`);
-      return;
-    }
-    
     console.log(`Viewer received ${type} signal from broadcaster`);
     
-    let pc = peerConnectionRef.current;
+    const pc = peerConnectionRef.current;
+    if (!pc) {
+      console.log(`No peer connection available`);
+      return;
+    }
     
     if (type === "offer") {
       // Broadcaster is sending offer
       console.log(`Received offer from broadcaster ${from}`);
-      if (!pc) {
-        console.log(`Creating peer connection for viewer`);
-        pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 });
-        peerConnectionRef.current = pc;
-        
-        pc.onicecandidate = (event) => {
-          if (event.candidate) {
-            console.log(`Viewer sending ICE candidate`);
-            channelRef.current?.send({
-              type: "broadcast",
-              event: "viewer-signal",
-              payload: { type: "ice-candidate", from: viewerId.current, to: from, signal: event.candidate }
-            });
-          }
-        };
-        
-        pc.ontrack = (event) => {
-          console.log("Viewer received track:", event.track.kind);
-          setRemoteStream(event.streams[0]);
-          setIsConnected(true);
-          setIsConnecting(false);
-          // Clear timeout on successful connection
-          if (connectionTimeoutRef.current) {
-            clearTimeout(connectionTimeoutRef.current);
-            connectionTimeoutRef.current = null;
-          }
-        };
-        
-        pc.onconnectionstatechange = () => {
-          console.log(`Viewer connection state: ${pc?.connectionState}`);
-          if (pc?.connectionState === "connected") {
-            setIsConnected(true);
-            setIsConnecting(false);
-          } else if (pc?.connectionState === "disconnected" || pc?.connectionState === "failed") {
-            setIsConnected(false);
-            setRemoteStream(null);
-            setIsConnecting(false);
-          }
-        };
-      }
       
       await pc.setRemoteDescription(new RTCSessionDescription(signal));
       console.log(`Set remote description, creating answer`);
@@ -531,7 +536,7 @@ export function useStreamViewer(streamId: string | null) {
       channelRef.current?.send({
         type: "broadcast",
         event: "viewer-signal",
-        payload: { type: "answer", from: viewerId.current, to: from, signal: answer }
+        payload: { type: "answer", from: viewerId.current, signal: answer }
       });
       if (pendingViewerCandidatesRef.current.length) {
         console.log(`Processing ${pendingViewerCandidatesRef.current.length} pending ICE candidates`);
@@ -540,7 +545,7 @@ export function useStreamViewer(streamId: string | null) {
         }
         pendingViewerCandidatesRef.current = [];
       }
-    } else if (type === "ice-candidate" && pc) {
+    } else if (type === "ice-candidate") {
       console.log(`Processing ICE candidate from broadcaster`);
       if (pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(signal));
@@ -558,6 +563,10 @@ export function useStreamViewer(streamId: string | null) {
 
     console.log(`Viewer connecting to stream ${streamId}`);
     setIsConnecting(true);
+    setConnectionError(null);
+
+    // Create peer connection first
+    createPeerConnection();
 
     // Set up signaling channel
     channelRef.current = supabase
@@ -590,10 +599,11 @@ export function useStreamViewer(streamId: string | null) {
           connectionTimeoutRef.current = setTimeout(() => {
             console.log("Connection timeout - giving up");
             setIsConnecting(false);
+            setConnectionError("Connection failed. Please check your internet connection and try again.");
           }, 30000); // 30 second timeout
         }
       });
-  }, [streamId, isConnecting, isConnected, handleBroadcasterSignal, user?.id]);
+  }, [streamId, isConnecting, isConnected, handleBroadcasterSignal, user?.id, createPeerConnection]);
 
   const disconnect = useCallback(() => {
     // Clear connection timeout
@@ -615,6 +625,7 @@ export function useStreamViewer(streamId: string | null) {
     setRemoteStream(null);
     setIsConnected(false);
     setIsConnecting(false);
+    setConnectionError(null);
     
     // Mark viewer left
     const key = viewerRecordKeyRef.current;
@@ -643,6 +654,7 @@ export function useStreamViewer(streamId: string | null) {
     remoteStream,
     isConnected,
     isConnecting,
+    connectionError,
     connect,
     disconnect,
   };

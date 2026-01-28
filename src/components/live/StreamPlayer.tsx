@@ -17,7 +17,8 @@ import {
   Share2,
   MoreHorizontal,
   Users,
-  Loader2
+  Loader2,
+  X
 } from "lucide-react";
 import { useStreamViewer } from "@/hooks/useLiveStream";
 
@@ -79,7 +80,7 @@ export function StreamPlayer({
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Use the viewer hook for WebRTC streams (when streamId is provided and no external URL)
-  const { remoteStream, isConnected, isConnecting, connect } = useStreamViewer(
+  const { remoteStream, isConnected, isConnecting, connectionError, connect } = useStreamViewer(
     (streamId && !externalUrl) ? streamId : null
   );
 
@@ -306,6 +307,26 @@ export function StreamPlayer({
                 <p className="text-sm text-gray-400 mt-1">Please wait while we establish the connection</p>
               </div>
             </div>
+          ) : connectionError ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+              <div className="text-center text-white px-4">
+                <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                  <X className="w-10 h-10 text-red-400" />
+                </div>
+                <p className="text-lg md:text-xl font-medium">Connection Failed</p>
+                <p className="text-sm text-gray-400 mt-1">{connectionError}</p>
+                <Button 
+                  onClick={() => {
+                    setConnectionError(null);
+                    connect();
+                  }}
+                  className="mt-4"
+                  variant="outline"
+                >
+                  Try Again
+                </Button>
+              </div>
+            </div>
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
               <div className="text-center text-white px-4">
@@ -335,7 +356,6 @@ export function StreamPlayer({
               </div>
             </div>
           )}
-        </div>
       </div>
 
       {/* Video Info Section - YouTube Style */}
@@ -387,6 +407,7 @@ export function StreamPlayer({
             </div>
           </Card>
         )}
+      </div>
       </div>
     </div>
   );
