@@ -593,11 +593,12 @@ export function useStreamViewer(streamId: string | null) {
         }
         pendingViewerCandidatesRef.current = [];
       }
-    } else if (type === "ice-candidate" && pc) {
-      console.log(`Processing ICE candidate from broadcaster`);
-      if (pc.remoteDescription) {
+    } else if (type === "ice-candidate") {
+      if (pc && pc.remoteDescription) {
+        console.log(`Processing ICE candidate from broadcaster`);
         await pc.addIceCandidate(new RTCIceCandidate(signal));
       } else {
+        console.log(`Buffering ICE candidate from broadcaster (pc=${!!pc}, hasRemoteDesc=${!!pc?.remoteDescription})`);
         pendingViewerCandidatesRef.current.push(signal);
       }
     }
