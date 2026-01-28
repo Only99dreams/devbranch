@@ -527,6 +527,8 @@ export function useStreamViewer(streamId: string | null) {
   const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isConnectingRef = useRef<boolean>(false); // Use ref to avoid stale closures
 
+  const retryIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleBroadcasterSignal = useCallback(async (payload: any) => {
     const { type, from, to, signal } = payload.payload;
     
@@ -541,6 +543,12 @@ export function useStreamViewer(streamId: string | null) {
     let pc = peerConnectionRef.current;
     
     if (type === "offer") {
+      // Clear retry interval once we get an offer
+      if (retryIntervalRef.current) {
+        clearInterval(retryIntervalRef.current);
+        retryIntervalRef.current = null;
+      }
+
       // Broadcaster is sending offer
       console.log(`Received offer from broadcaster ${from}`);
       if (!pc) {
@@ -634,12 +642,23 @@ export function useStreamViewer(streamId: string | null) {
         console.log(`Viewer channel status: ${status}`);
         if (status === "SUBSCRIBED") {
           console.log(`Viewer sending viewer-join for stream ${streamId}`);
-          // Announce to broadcaster that we want to join
-          channelRef.current?.send({
-            type: "broadcast",
-            event: "viewer-signal",
-            payload: { type: "viewer-join", from: viewerId.current }
-          });
+          
+          const sendJoinSignal = () => {
+            console.log(`Sending viewer-join signal (retry)`);
+            channelRef.current?.send({
+              type: "broadcast",
+              event: "viewer-signal",
+              payload: { type: "viewer-join", from: viewerId.current }
+            });
+          };
+
+          // Send immediately
+          sendJoinSignal();
+
+          // And retry every 2 seconds until we get an offer or timeout
+          if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+          retryIntervalRef.current = setInterval(sendJoinSignal, 2000);
+
           // Track viewer presence in DB
           viewerRecordKeyRef.current = { stream_id: streamId, user_id: user?.id || null, anon_id: user?.id ? null : viewerId.current };
           supabase
@@ -656,6 +675,10 @@ export function useStreamViewer(streamId: string | null) {
           // Set a timeout to give up if connection doesn't establish
           connectionTimeoutRef.current = setTimeout(() => {
             console.log("Connection timeout - giving up");
+            if (retryIntervalRef.current) {
+              clearInterval(retryIntervalRef.current);
+              retryIntervalRef.current = null;
+            }
             setIsConnecting(false);
             isConnectingRef.current = false;
             setIsConnected(false); // Also reset connected state
@@ -665,7 +688,7 @@ export function useStreamViewer(streamId: string | null) {
               peerConnectionRef.current = null;
             }
             setRemoteStream(null);
-          }, 30000); // 30 second timeout
+          }, 45000); // 45 second timeout
         }
       });
   }, [streamId, handleBroadcasterSignal, user?.id]);
@@ -675,6 +698,11 @@ export function useStreamViewer(streamId: string | null) {
     if (connectionTimeoutRef.current) {
       clearTimeout(connectionTimeoutRef.current);
       connectionTimeoutRef.current = null;
+    }
+
+    if (retryIntervalRef.current) {
+      clearInterval(retryIntervalRef.current);
+      retryIntervalRef.current = null;
     }
 
     if (channelRef.current) {
