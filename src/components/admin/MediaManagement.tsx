@@ -227,6 +227,16 @@ export function MediaManagement() {
                     >
                       {item.is_published ? "Unpublish" : "Publish"}
                     </Button>
+                    {item.file_url && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => window.open(item.file_url, '_blank')}
+                        title="View media"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => deleteMedia(item.id)}>
                       <Trash2 className="w-4 h-4" />
                     </Button>

@@ -15,8 +15,9 @@ import {
   BarChart3,
   MessageSquare,
   Download,
+  HandHeart,
 } from "lucide-react";
-import logo from "@/assets/logo.png";
+import logo from "@/assets/logo.jpg";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { UserManagement } from "@/components/admin/UserManagement";
@@ -206,6 +207,10 @@ const AdminDashboard = () => {
               <MessageSquare className="w-4 h-4 mr-2" />
               Feedback
             </TabsTrigger>
+          <TabsTrigger value="prayer-requests">
+              <HandHeart className="w-4 h-4 mr-2" />
+              Prayer Requests
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -239,6 +244,9 @@ const AdminDashboard = () => {
 
           <TabsContent value="feedback">
             <FeedbackManagement />
+          </TabsContent>
+          <TabsContent value="prayer-requests">
+            <PrayerRequestsManagement />
           </TabsContent>
         </Tabs>
       </div>

@@ -1,152 +1,182 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Upload, FileText, X } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Upload, X, FileText, Send, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "@/hooks/use-toast";
 
 interface PrayerRequestFormProps {
   open: boolean;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
 }
 
-export const PrayerRequestForm = ({ open, onClose }: PrayerRequestFormProps) => {
+export function PrayerRequestForm({ open, onOpenChange }: PrayerRequestFormProps) {
   const [formData, setFormData] = useState({
-    fullName: "",
+    full_name: "",
     email: "",
     phone: "",
-    requestText: "",
+    request_text: "",
   });
-  const [file, setFile] = useState<File | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      // Check file type
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
-      if (!allowedTypes.includes(selectedFile.type)) {
-        setError("Please select a valid image file (JPEG, PNG, GIF) or PDF document.");
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type (PDF, images, common document types)
+      const allowedTypes = [
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ];
+      if (!allowedTypes.includes(file.type)) {
+        toast({
+          title: "Invalid file type",
+          description: "Please upload a PDF, image, or document file.",
+          variant: "destructive",
+        });
         return;
       }
-
-      // Check file size (10MB limit)
-      if (selectedFile.size > 10 * 1024 * 1024) {
-        setError("File size must be less than 10MB.");
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "Please upload a file smaller than 10MB.",
+          variant: "destructive",
+        });
         return;
       }
-
-      setFile(selectedFile);
-      setError("");
+      setSelectedFile(file);
     }
   };
 
-  const uploadFile = async (): Promise<string | null> => {
-    if (!file) return null;
-
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-    const filePath = `prayer-reports/${fileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('prayer-reports')
-      .upload(filePath, file);
-
-    if (uploadError) {
-      throw new Error(`Failed to upload file: ${uploadError.message}`);
+  const handleRemoveFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
-
-    const { data } = supabase.storage
-      .from('prayer-reports')
-      .getPublicUrl(filePath);
-
-    return data.publicUrl;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!formData.full_name || !formData.email || !formData.request_text) {
+      toast({
+        title: "Missing required fields",
+        description: "Please fill in your name, email, and prayer request.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
-    setError("");
 
     try {
-      let doctorsReportUrl = null;
+      let doctorsReportUrl: string | null = null;
 
-      if (file) {
-        doctorsReportUrl = await uploadFile();
+      // Upload file if selected
+      if (selectedFile) {
+        const fileExt = selectedFile.name.split(".").pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `reports/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("prayer-reports")
+          .upload(filePath, selectedFile);
+
+        if (uploadError) {
+          console.error("Upload error:", uploadError);
+          toast({
+            title: "Upload failed",
+            description: uploadError.message || "Failed to upload document. Please try again.",
+            variant: "destructive",
+          });
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Get public URL (for admins to access later)
+        doctorsReportUrl = filePath;
       }
 
-      const { error: submitError } = await supabase
-        .from('prayer_requests')
-        .insert({
-          full_name: formData.fullName,
-          email: formData.email,
-          phone: formData.phone || null,
-          request_text: formData.requestText,
-          doctors_report_url: doctorsReportUrl,
-        });
+      // Insert prayer request
+      const { error: insertError } = await supabase.from("prayer_requests").insert({
+        full_name: formData.full_name,
+        email: formData.email,
+        phone: formData.phone || null,
+        request_text: formData.request_text,
+        doctors_report_url: doctorsReportUrl,
+      });
 
-      if (submitError) {
-        throw new Error(submitError.message);
+      if (insertError) {
+        console.error("Insert error:", insertError);
+        toast({
+          title: "Submission failed",
+          description: insertError.message || "Failed to submit prayer request. Please try again.",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+        return;
       }
 
       toast({
         title: "Prayer request submitted",
-        description: "Your prayer request has been submitted successfully. We will pray for you.",
+        description: "Thank you for sharing. We will keep you in our prayers.",
       });
 
       // Reset form
       setFormData({
-        fullName: "",
+        full_name: "",
         email: "",
         phone: "",
-        requestText: "",
+        request_text: "",
       });
-      setFile(null);
-      onClose();
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred while submitting your request.");
+      setSelectedFile(null);
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Submission error:", error);
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const removeFile = () => {
-    setFile(null);
-    const fileInput = document.getElementById('doctors-report') as HTMLInputElement;
-    if (fileInput) fileInput.value = '';
-  };
-
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-serif">Submit Prayer Request</DialogTitle>
+          <DialogDescription>
+            Share your prayer request with us. All submissions are confidential.
+          </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="fullName">Full Name *</Label>
+            <Label htmlFor="full_name">Full Name *</Label>
             <Input
-              id="fullName"
-              name="fullName"
-              type="text"
+              id="full_name"
+              placeholder="Your full name"
+              value={formData.full_name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, full_name: e.target.value }))}
               required
-              value={formData.fullName}
-              onChange={handleInputChange}
-              placeholder="Enter your full name"
             />
           </div>
 
@@ -154,92 +184,112 @@ export const PrayerRequestForm = ({ open, onClose }: PrayerRequestFormProps) => 
             <Label htmlFor="email">Email *</Label>
             <Input
               id="email"
-              name="email"
               type="email"
-              required
+              placeholder="your@email.com"
               value={formData.email}
-              onChange={handleInputChange}
-              placeholder="Enter your email address"
+              onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+              required
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="phone">Phone Number</Label>
+            <Label htmlFor="phone">Phone (optional)</Label>
             <Input
               id="phone"
-              name="phone"
               type="tel"
+              placeholder="Your phone number"
               value={formData.phone}
-              onChange={handleInputChange}
-              placeholder="Enter your phone number (optional)"
+              onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="requestText">Prayer Request *</Label>
+            <Label htmlFor="request_text">Prayer Request *</Label>
             <Textarea
-              id="requestText"
-              name="requestText"
-              required
-              value={formData.requestText}
-              onChange={handleInputChange}
+              id="request_text"
               placeholder="Please share your prayer request..."
               rows={4}
+              value={formData.request_text}
+              onChange={(e) => setFormData((prev) => ({ ...prev, request_text: e.target.value }))}
+              required
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="doctors-report">Doctor's Report (Optional)</Label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-              <input
-                id="doctors-report"
-                type="file"
-                accept="image/*,.pdf"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              {!file ? (
-                <label htmlFor="doctors-report" className="cursor-pointer flex flex-col items-center">
-                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                  <span className="text-sm text-gray-600">Click to upload doctor's report</span>
-                  <span className="text-xs text-gray-500">Images or PDF (max 10MB)</span>
-                </label>
-              ) : (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <FileText className="w-5 h-5 text-gray-500 mr-2" />
-                    <span className="text-sm text-gray-700 truncate">{file.name}</span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={removeFile}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                </div>
-              )}
-            </div>
+            <Label>Doctor's Report (optional)</Label>
+            <p className="text-sm text-muted-foreground mb-2">
+              If applicable, you can attach a medical document for healing prayers.
+            </p>
+            
+            {selectedFile ? (
+              <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                <FileText className="w-5 h-5 text-muted-foreground" />
+                <span className="flex-1 truncate text-sm">{selectedFile.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRemoveFile}
+                  className="h-8 w-8 p-0"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            ) : (
+              <div
+                className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-accent transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp"
+                  onChange={handleFileSelect}
+                />
+                <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  Click to upload (PDF, Image, or Document)
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Max 10MB</p>
+              </div>
+            )}
           </div>
 
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
           <div className="flex gap-2 pt-4">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => onOpenChange(false)}
+              disabled={isSubmitting}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting} className="flex-1">
-              {isSubmitting ? "Submitting..." : "Submit Request"}
+            <Button
+              type="submit"
+              variant="gold"
+              className="flex-1"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  Submit Request
+                </>
+              )}
             </Button>
           </div>
         </form>
       </DialogContent>
     </Dialog>
   );
-};
+}

@@ -281,18 +281,61 @@ export function useLiveStream() {
     }
   }, [toast]);
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback(async () => {
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
       setState(prev => ({ ...prev, isRecording: false }));
 
-      toast({
-        title: "Recording Stopped",
-        description: "Recording has been saved.",
-      });
+      // Upload recorded video to storage
+      const recordedBlob = getRecordedBlob();
+      if (recordedBlob && state.streamId) {
+        try {
+          const fileName = `recording-${state.streamId}-${Date.now()}.webm`;
+          const filePath = `recordings/${fileName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from("recordings")
+            .upload(filePath, recordedBlob);
+
+          if (uploadError) throw uploadError;
+
+          // Get public URL
+          const { data: urlData } = supabase.storage
+            .from("recordings")
+            .getPublicUrl(filePath);
+
+          // Update stream with recording URL
+          const { error: updateError } = await supabase
+            .from("live_streams")
+            .update({
+              recording_url: urlData.publicUrl,
+              recording_status: "saved",
+            })
+            .eq("id", state.streamId);
+
+          if (updateError) throw updateError;
+
+          toast({
+            title: "Recording Saved",
+            description: "Your livestream recording has been saved successfully.",
+          });
+        } catch (error) {
+          console.error("Error saving recording:", error);
+          toast({
+            title: "Recording Error",
+            description: "Failed to save recording. The video may still be available locally.",
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Recording Stopped",
+          description: "Recording stopped but no video data was captured.",
+        });
+      }
     }
-  }, [toast]);
+  }, [toast, getRecordedBlob, state.streamId]);
 
   const getRecordedBlob = useCallback(() => {
     if (recordedChunksRef.current.length === 0) return null;

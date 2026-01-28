@@ -11,6 +11,7 @@ import { useJoinRequests } from "@/hooks/useJoinRequests";
 import { PrayerRoom } from "@/components/prayer/PrayerRoom";
 import { SessionCard } from "@/components/prayer/SessionCard";
 import { PrayerRequestForm } from "@/components/prayer/PrayerRequestForm";
+import { JoinRequestStatus } from "@/components/prayer/JoinRequestStatus";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -268,7 +269,7 @@ const Prayer = () => {
       {/* Prayer Request Form */}
       <PrayerRequestForm
         open={showPrayerRequestForm}
-        onClose={() => setShowPrayerRequestForm(false)}
+        onOpenChange={setShowPrayerRequestForm}
       />
     </Layout>
   );

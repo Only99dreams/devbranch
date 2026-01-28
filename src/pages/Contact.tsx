@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { MessageCircle, HelpCircle, AlertCircle, Send, MapPin, Phone, Mail, Clock } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { MessageCircle, HelpCircle, AlertCircle, Send, MapPin, Phone, Mail, Clock, Loader2 } from "lucide-react";
 
 const contactTypes = [
   { id: "inquiry", label: "General Inquiry", icon: HelpCircle, description: "Questions about services, events, or membership" },
@@ -19,6 +20,7 @@ const contactTypes = [
 const Contact = () => {
   const { toast } = useToast();
   const [contactType, setContactType] = useState("inquiry");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -34,19 +36,59 @@ const Contact = () => {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast({
-      title: "Message Sent",
-      description: "Thank you for contacting us. We'll respond as soon as possible.",
-    });
-    setFormData({
-      fullName: "",
-      email: "",
-      phone: "",
-      address: "",
-      message: "",
-    });
+
+    // Validation
+    if (!formData.fullName || !formData.email || !formData.message) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const { error } = await supabase
+        .from("feedback")
+        .insert({
+          type: contactType,
+          full_name: formData.fullName,
+          email: formData.email,
+          phone: formData.phone || null,
+          address: formData.address || null,
+          message: formData.message,
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Message Sent Successfully",
+        description: "Thank you for contacting us. We'll respond as soon as possible.",
+      });
+
+      // Reset form
+      setFormData({
+        fullName: "",
+        email: "",
+        phone: "",
+        address: "",
+        message: "",
+      });
+      setContactType("inquiry");
+    } catch (error) {
+      console.error("Error submitting feedback:", error);
+      toast({
+        title: "Error",
+        description: "Failed to send message. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -174,9 +216,24 @@ const Contact = () => {
                     </div>
 
                     {/* Submit */}
-                    <Button variant="hero" size="lg" className="w-full">
-                      <Send className="w-5 h-5" />
-                      Send Message
+                    <Button
+                      variant="hero"
+                      size="lg"
+                      className="w-full"
+                      type="submit"
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-5 h-5 mr-2" />
+                          Send Message
+                        </>
+                      )}
                     </Button>
                   </form>
                 </CardContent>
