@@ -21,8 +21,12 @@ const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
+  // Public TURN servers (may have usage limits)
   { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
   { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:turn.anyfirewall.com:443?transport=tcp", username: "webrtc", credential: "webrtc" },
 ];
 
 interface StreamState {
@@ -57,7 +61,6 @@ export function useLiveStream() {
     return new Blob(recordedChunksRef.current, { type: "video/webm" });
   }, []);
 
-  // WebRTC signaling functions
   const handleViewerSignal = useCallback(async (payload: any) => {
     const { type, from, to, signal } = payload.payload;
 
@@ -66,14 +69,19 @@ export function useLiveStream() {
     if (type === "viewer-join") {
       // New viewer wants to join - only create connection if we have a local stream
       if (localStreamRef.current && state.isStreaming && !state.externalStreamUrl) {
+        console.log(`Creating peer connection for viewer ${from}`);
         await createPeerConnection(from);
+      } else {
+        console.log(`Cannot create peer connection: streaming=${state.isStreaming}, hasStream=${!!localStreamRef.current}, externalUrl=${state.externalStreamUrl}`);
       }
     } else if (type === "answer" && peerConnectionsRef.current.has(from)) {
       // Viewer sent answer to our offer
+      console.log(`Received answer from viewer ${from}`);
       const pc = peerConnectionsRef.current.get(from)!;
       await pc.setRemoteDescription(new RTCSessionDescription(signal));
     } else if (type === "ice-candidate" && peerConnectionsRef.current.has(from)) {
       // Viewer sent ICE candidate
+      console.log(`Received ICE candidate from viewer ${from}`);
       const pc = peerConnectionsRef.current.get(from)!;
       if (pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(signal));
@@ -86,11 +94,13 @@ export function useLiveStream() {
       return; // Already have connection for this viewer
     }
 
+    console.log(`Creating peer connection for viewer ${viewerId}`);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 });
     peerConnectionsRef.current.set(viewerId, pc);
 
     // Add local stream tracks to peer connection if available
     if (localStreamRef.current) {
+      console.log(`Adding ${localStreamRef.current.getTracks().length} tracks to peer connection`);
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current!);
       });
@@ -98,6 +108,7 @@ export function useLiveStream() {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log(`Broadcaster sending ICE candidate to ${viewerId}`);
         channelRef.current?.send({
           type: "broadcast",
           event: "stream-signal",
@@ -117,20 +128,28 @@ export function useLiveStream() {
 
     // Only create and send offer if we have tracks
     if (localStreamRef.current && localStreamRef.current.getTracks().length > 0) {
+      console.log(`Creating offer for viewer ${viewerId}`);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      console.log(`Sending offer to viewer ${viewerId}`);
       channelRef.current?.send({
         type: "broadcast",
         event: "stream-signal",
         payload: { type: "offer", from: state.streamKey, to: viewerId, signal: offer }
       });
+    } else {
+      console.log(`No tracks available for offer creation`);
     }
   }, [state.streamKey]);
 
   const setupSignaling = useCallback(() => {
-    if (!state.streamId || !state.streamKey) return;
+    if (!state.streamId || !state.streamKey) {
+      console.log(`Cannot setup signaling: streamId=${state.streamId}, streamKey=${state.streamKey}`);
+      return;
+    }
 
+    console.log(`Setting up signaling for stream ${state.streamId}`);
     channelRef.current = supabase
       .channel(`live-stream-${state.streamId}`)
       .on("broadcast", { event: "viewer-signal" }, handleViewerSignal)
@@ -309,9 +328,31 @@ export function useLiveStream() {
           const fileName = `recording-${state.streamId}-${Date.now()}.webm`;
           const filePath = `recordings/${fileName}`;
 
-          const { error: uploadError } = await supabase.storage
+          // Try to upload first
+          let { error: uploadError } = await supabase.storage
             .from("recordings")
             .upload(filePath, recordedBlob);
+
+          // If bucket doesn't exist, create it and retry
+          if (uploadError && uploadError.message?.includes("not found")) {
+            console.log("Recordings bucket not found, creating it...");
+            const { error: createBucketError } = await supabase.storage.createBucket("recordings", {
+              public: true,
+              allowedMimeTypes: ["video/webm", "video/mp4", "video/avi"],
+              fileSizeLimit: 100000000, // 100MB
+            });
+
+            if (createBucketError) {
+              console.error("Failed to create recordings bucket:", createBucketError);
+              throw createBucketError;
+            }
+
+            // Retry upload
+            const retryResult = await supabase.storage
+              .from("recordings")
+              .upload(filePath, recordedBlob);
+            uploadError = retryResult.error;
+          }
 
           if (uploadError) throw uploadError;
 
@@ -428,7 +469,10 @@ export function useStreamViewer(streamId: string | null) {
     const { type, from, to, signal } = payload.payload;
     
     // Only process signals meant for us
-    if (to && to !== viewerId.current) return;
+    if (to && to !== viewerId.current) {
+      console.log(`Ignoring signal for ${to}, we are ${viewerId.current}`);
+      return;
+    }
     
     console.log(`Viewer received ${type} signal from broadcaster`);
     
@@ -436,12 +480,15 @@ export function useStreamViewer(streamId: string | null) {
     
     if (type === "offer") {
       // Broadcaster is sending offer
+      console.log(`Received offer from broadcaster ${from}`);
       if (!pc) {
+        console.log(`Creating peer connection for viewer`);
         pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 });
         peerConnectionRef.current = pc;
         
         pc.onicecandidate = (event) => {
           if (event.candidate) {
+            console.log(`Viewer sending ICE candidate`);
             channelRef.current?.send({
               type: "broadcast",
               event: "viewer-signal",
@@ -470,27 +517,31 @@ export function useStreamViewer(streamId: string | null) {
           } else if (pc?.connectionState === "disconnected" || pc?.connectionState === "failed") {
             setIsConnected(false);
             setRemoteStream(null);
-            setIsConnecting(false); // Add this line
+            setIsConnecting(false);
           }
         };
       }
       
       await pc.setRemoteDescription(new RTCSessionDescription(signal));
+      console.log(`Set remote description, creating answer`);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       
+      console.log(`Sending answer to broadcaster`);
       channelRef.current?.send({
         type: "broadcast",
         event: "viewer-signal",
         payload: { type: "answer", from: viewerId.current, to: from, signal: answer }
       });
       if (pendingViewerCandidatesRef.current.length) {
+        console.log(`Processing ${pendingViewerCandidatesRef.current.length} pending ICE candidates`);
         for (const c of pendingViewerCandidatesRef.current) {
           await pc.addIceCandidate(new RTCIceCandidate(c));
         }
         pendingViewerCandidatesRef.current = [];
       }
     } else if (type === "ice-candidate" && pc) {
+      console.log(`Processing ICE candidate from broadcaster`);
       if (pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(signal));
       } else {
@@ -500,8 +551,12 @@ export function useStreamViewer(streamId: string | null) {
   }, []);
 
   const connect = useCallback(() => {
-    if (!streamId || isConnecting || isConnected) return;
+    if (!streamId || isConnecting || isConnected) {
+      console.log(`Cannot connect: streamId=${streamId}, isConnecting=${isConnecting}, isConnected=${isConnected}`);
+      return;
+    }
 
+    console.log(`Viewer connecting to stream ${streamId}`);
     setIsConnecting(true);
 
     // Set up signaling channel
@@ -509,7 +564,9 @@ export function useStreamViewer(streamId: string | null) {
       .channel(`live-stream-${streamId}`)
       .on("broadcast", { event: "stream-signal" }, handleBroadcasterSignal)
       .subscribe((status) => {
+        console.log(`Viewer channel status: ${status}`);
         if (status === "SUBSCRIBED") {
+          console.log(`Viewer sending viewer-join for stream ${streamId}`);
           // Announce to broadcaster that we want to join
           channelRef.current?.send({
             type: "broadcast",
