@@ -10,6 +10,7 @@ import {
   MessageSquare, Send, MoreVertical, X, Heart
 } from "lucide-react";
 import { usePrayerRoom } from "@/hooks/usePrayerSession";
+import { useAuth } from "@/hooks/useAuth";
 
 interface PrayerRoomProps {
   sessionId: string;
@@ -17,6 +18,7 @@ interface PrayerRoomProps {
 }
 
 export function PrayerRoom({ sessionId, onLeave }: PrayerRoomProps) {
+  const { user } = useAuth();
   const {
     session,
     participants,
@@ -524,13 +526,15 @@ export function PrayerRoom({ sessionId, onLeave }: PrayerRoomProps) {
             </div>
 
             {/* Remote Participants */}
-            {participants.map((participant) => (
-              <ParticipantVideo
-                key={participant.id}
-                participant={participant}
-                stream={remoteStreams.get(participant.user_id)}
-              />
-            ))}
+            {participants
+              .filter((participant) => participant.user_id !== user?.id)
+              .map((participant) => (
+                <ParticipantVideo
+                  key={participant.id}
+                  participant={participant}
+                  stream={remoteStreams.get(participant.user_id)}
+                />
+              ))}
           </div>
         </div>
 
@@ -606,25 +610,27 @@ export function PrayerRoom({ sessionId, onLeave }: PrayerRoomProps) {
                   </div>
                   
                   {/* Other participants */}
-                  {participants.map((p) => (
-                    <div key={p.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
-                      <Avatar className="w-10 h-10">
-                        <AvatarImage src={p.profile?.avatar_url || undefined} />
-                        <AvatarFallback className="text-sm">
-                          {p.profile?.full_name?.[0] || "?"}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {p.profile?.full_name || "Participant"}
-                        </p>
+                  {participants
+                    .filter((p) => p.user_id !== user?.id)
+                    .map((p) => (
+                      <div key={p.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
+                        <Avatar className="w-10 h-10">
+                          <AvatarImage src={p.profile?.avatar_url || undefined} />
+                          <AvatarFallback className="text-sm">
+                            {p.profile?.full_name?.[0] || "?"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {p.profile?.full_name || "Participant"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {p.hand_raised && <Hand className="w-4 h-4 text-yellow-500" />}
+                          {p.is_muted ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className="w-4 h-4 text-green-400" />}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        {p.hand_raised && <Hand className="w-4 h-4 text-yellow-500" />}
-                        {p.is_muted ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className="w-4 h-4 text-green-400" />}
-                      </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               </ScrollArea>
             )}
