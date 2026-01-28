@@ -26,6 +26,7 @@ export function useLiveStream() {
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const channelRef = useRef<any>(null);
 
   const startStream = useCallback(async (title: string, description?: string, externalUrl?: string) => {
     try {
@@ -190,7 +191,8 @@ export function useLiveStream() {
   useEffect(() => {
     if (!state.streamId) return;
 
-    const channel = supabase
+    // Subscribe to stream updates and WebRTC signaling on the same channel
+    channelRef.current = supabase
       .channel(`stream-${state.streamId}`)
       .on(
         "postgres_changes",
@@ -204,10 +206,75 @@ export function useLiveStream() {
           console.log("Stream update:", payload);
         }
       )
+      .on("broadcast", { event: "webrtc-signal" }, async (payload: any) => {
+        // Broadcaster will handle incoming offers/ice from viewers here
+        try {
+          const p = payload.payload || {};
+          const { type, from, signal } = p;
+          if (!type || !from) return;
+
+          // Only broadcaster (the stream starter) handles incoming offers
+          if (state.isStreaming) {
+            if (type === "offer") {
+              console.log("Received offer from viewer", from);
+              // Create peer connection for this viewer
+              const pc = new RTCPeerConnection();
+
+              // Add local tracks
+              if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach((track) => pc.addTrack(track, localStreamRef.current!));
+              }
+
+              pc.onicecandidate = (ev) => {
+                if (ev.candidate) {
+                  channelRef.current?.send({
+                    type: "broadcast",
+                    event: "webrtc-signal",
+                    payload: { type: "ice", from: state.streamId, to: from, signal: ev.candidate },
+                  });
+                }
+              };
+
+              // Create remote stream placeholder (if viewer expects remote audio for two-way)
+              const remoteStream = new MediaStream();
+              pc.ontrack = (e) => {
+                e.streams.forEach((s) => s.getTracks().forEach((t) => remoteStream.addTrack(t)));
+              };
+
+              peerConnectionsRef.current.set(from, pc);
+
+              await pc.setRemoteDescription(new RTCSessionDescription(signal));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+
+              // Send answer back to viewer
+              channelRef.current?.send({
+                type: "broadcast",
+                event: "webrtc-signal",
+                payload: { type: "answer", from: state.streamId, to: from, signal: answer },
+              });
+            } else if (type === "ice") {
+              const pc = peerConnectionsRef.current.get(p.from);
+              if (pc && p.signal) {
+                try {
+                  await pc.addIceCandidate(p.signal);
+                } catch (err) {
+                  console.warn("Failed to add ICE candidate on broadcaster:", err);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Signaling handler error:", err);
+        }
+      })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
   }, [state.streamId]);
 
@@ -231,28 +298,99 @@ export function useStreamViewer(streamId: string | null) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
 
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const channelRefViewer = useRef<any>(null);
+  const clientIdRef = useRef<string>(typeof crypto !== 'undefined' && (crypto as any).randomUUID ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2));
+
+  const handleSignal = useCallback(async (payload: any) => {
+    const p = payload.payload || {};
+    const { type, from, to, signal } = p;
+    if (!type) return;
+
+    // Ignore signals not addressed to us (when a 'to' is provided)
+    if (to && to !== clientIdRef.current && to !== streamId) return;
+
+    if (type === "answer") {
+      if (!pcRef.current) return;
+      try {
+        await pcRef.current.setRemoteDescription(new RTCSessionDescription(signal));
+        setIsConnected(true);
+      } catch (err) {
+        console.error("Error setting remote description (answer):", err);
+      }
+    } else if (type === "ice") {
+      if (!pcRef.current) return;
+      try {
+        await pcRef.current.addIceCandidate(signal);
+      } catch (err) {
+        console.warn("Failed to add ICE candidate (viewer):", err);
+      }
+    }
+  }, [streamId]);
+
   const connect = useCallback(async () => {
     if (!streamId) return;
     setIsConnecting(true);
     try {
-      // Placeholder: implement real signalling/SDP exchange here.
-      // For now, simulate a short connection delay.
-      await new Promise((res) => setTimeout(res, 300));
-      setIsConnected(true);
+      // Subscribe to signaling channel for this stream
+      channelRefViewer.current = supabase
+        .channel(`stream-${streamId}`)
+        .on("broadcast", { event: "webrtc-signal" }, handleSignal)
+        .subscribe();
+
+      const pc = new RTCPeerConnection();
+      pcRef.current = pc;
+
+      const remote = new MediaStream();
+      setRemoteStream(remote);
+
+      pc.ontrack = (e) => {
+        e.streams.forEach((s) => s.getTracks().forEach((t) => remote.addTrack(t)));
+      };
+
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate) {
+          channelRefViewer.current?.send({
+            type: "broadcast",
+            event: "webrtc-signal",
+            payload: { type: "ice", from: clientIdRef.current, to: streamId, signal: ev.candidate },
+          });
+        }
+      };
+
+      // Viewer initiates the offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // Send offer to broadcaster
+      channelRefViewer.current?.send({
+        type: "broadcast",
+        event: "webrtc-signal",
+        payload: { type: "offer", from: clientIdRef.current, to: streamId, signal: offer },
+      });
+
+      setIsConnecting(false);
     } catch (err) {
       console.error("useStreamViewer connect error:", err);
-      setIsConnected(false);
-    } finally {
       setIsConnecting(false);
+      setIsConnected(false);
     }
-  }, [streamId]);
+  }, [streamId, handleSignal]);
 
   useEffect(() => {
     return () => {
-      // Clean up any attached tracks if we had a remote stream.
+      if (pcRef.current) {
+        pcRef.current.getSenders().forEach((s) => s.track?.stop());
+        pcRef.current.close();
+        pcRef.current = null;
+      }
       if (remoteStream) {
         remoteStream.getTracks().forEach((t) => t.stop());
         setRemoteStream(null);
+      }
+      if (channelRefViewer.current) {
+        supabase.removeChannel(channelRefViewer.current);
+        channelRefViewer.current = null;
       }
       setIsConnected(false);
       setIsConnecting(false);
