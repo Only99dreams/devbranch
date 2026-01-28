@@ -45,85 +45,10 @@ export function useLiveStream() {
     viewerCount: 0,
     externalStreamUrl: null,
   });
-  
+
   const localStreamRef = useRef<MediaStream | null>(null);
-  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
-  const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-
-  const updateViewerCount = useCallback(() => {
-    setState(prev => ({ ...prev, viewerCount: peerConnectionsRef.current.size }));
-  }, []);
-
-  // Handle WebRTC signaling for broadcaster
-  const handleViewerSignal = useCallback(async (payload: any) => {
-    const { type, from, signal } = payload.payload;
-    if (!localStreamRef.current) return;
-    
-    console.log(`Broadcaster received ${type} signal from viewer ${from}`);
-    
-    let pc = peerConnectionsRef.current.get(from);
-    
-    if (type === "viewer-join") {
-      // New viewer wants to connect
-      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 });
-      peerConnectionsRef.current.set(from, pc);
-      
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          channelRef.current?.send({
-            type: "broadcast",
-            event: "stream-signal",
-            payload: { type: "ice-candidate", from: user?.id, to: from, signal: event.candidate }
-          });
-        }
-      };
-      
-      pc.onconnectionstatechange = () => {
-        console.log(`Broadcaster connection state with ${from}: ${pc?.connectionState}`);
-        if (pc?.connectionState === "disconnected" || pc?.connectionState === "failed") {
-          peerConnectionsRef.current.delete(from);
-          pc?.close();
-          updateViewerCount();
-        }
-      };
-      
-      // Add local stream tracks
-      localStreamRef.current.getTracks().forEach(track => {
-        pc!.addTrack(track, localStreamRef.current!);
-      });
-      
-      // Create and send offer
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      channelRef.current?.send({
-        type: "broadcast",
-        event: "stream-signal",
-        payload: { type: "offer", from: user?.id, to: from, signal: offer }
-      });
-      
-      updateViewerCount();
-    } else if (type === "answer" && pc) {
-      await pc.setRemoteDescription(new RTCSessionDescription(signal));
-      const queued = pendingCandidatesRef.current.get(from);
-      if (queued && queued.length) {
-        for (const c of queued) {
-          await pc.addIceCandidate(new RTCIceCandidate(c));
-        }
-        pendingCandidatesRef.current.delete(from);
-      }
-    } else if (type === "ice-candidate" && pc) {
-      if (pc.remoteDescription) {
-        await pc.addIceCandidate(new RTCIceCandidate(signal));
-      } else {
-        const arr = pendingCandidatesRef.current.get(from) || [];
-        arr.push(signal);
-        pendingCandidatesRef.current.set(from, arr);
-      }
-    }
-  }, [user]);
 
   const startStream = useCallback(async (title: string, description?: string, externalUrl?: string) => {
     try {
@@ -156,14 +81,6 @@ export function useLiveStream() {
 
       if (error) throw error;
 
-      // Set up signaling channel for WebRTC (only for camera streams)
-      if (!externalUrl && stream) {
-        channelRef.current = supabase
-          .channel(`live-stream-${streamData.id}`)
-          .on("broadcast", { event: "viewer-signal" }, handleViewerSignal)
-          .subscribe();
-      }
-
       setState(prev => ({
         ...prev,
         isStreaming: true,
@@ -187,25 +104,15 @@ export function useLiveStream() {
       });
       throw error;
     }
-  }, [toast, user, handleViewerSignal]);
+  }, [toast, user]);
 
   const stopStream = useCallback(async (saveRecording: boolean = false) => {
     try {
-      // Clean up signaling channel
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-
       // Stop local stream
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
         localStreamRef.current = null;
       }
-
-      // Stop all peer connections
-      peerConnectionsRef.current.forEach(pc => pc.close());
-      peerConnectionsRef.current.clear();
 
       // Stop recording if active
       if (mediaRecorderRef.current && state.isRecording) {
@@ -337,35 +244,17 @@ export function useLiveStream() {
     }
   }, [toast, getRecordedBlob, state.streamId]);
 
-  const getRecordedBlob = useCallback(() => {
-    if (recordedChunksRef.current.length === 0) return null;
-    return new Blob(recordedChunksRef.current, { type: "video/webm" });
-  }, []);
-
-  // Subscribe to realtime updates for viewer count
+  // Cleanup on unmount
   useEffect(() => {
-    if (!state.streamId) return;
-
-    const channel = supabase
-      .channel(`stream-${state.streamId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "live_streams",
-          filter: `id=eq.${state.streamId}`,
-        },
-        (payload) => {
-          console.log("Stream update:", payload);
-        }
-      )
-      .subscribe();
-
     return () => {
-      supabase.removeChannel(channel);
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.stop();
+      }
     };
-  }, [state.streamId]);
+  }, []);
 
   return {
     ...state,
@@ -374,7 +263,6 @@ export function useLiveStream() {
     stopStream,
     startRecording,
     stopRecording,
-    getRecordedBlob,
   };
 }
 
