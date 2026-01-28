@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Play, Eye, Clock, ExternalLink } from "lucide-react";
+import { Play, Eye, Clock, ExternalLink, Download } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 
@@ -23,6 +24,7 @@ const Recordings = () => {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRecording, setSelectedRecording] = useState<Recording | null>(null);
+  const { isAdmin } = useAuth();
 
   useEffect(() => {
     fetchRecordings();
@@ -161,14 +163,66 @@ const Recordings = () => {
                         {formatDuration(rec.started_at, rec.ended_at)}
                       </span>
                       {rec.recording_url && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedRecording(rec)}
-                        >
-                          <Play className="w-3 h-3 mr-1" />
-                          Watch
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedRecording(rec)}
+                          >
+                            <Play className="w-3 h-3 mr-1" />
+                            Watch
+                          </Button>
+                          {isAdmin && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={async () => {
+                                // Try direct download first
+                                try {
+                                  const resp = await fetch(rec.recording_url!);
+                                  if (!resp.ok) throw new Error("Fetch failed");
+                                  const blob = await resp.blob();
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement("a");
+                                  a.href = url;
+                                  const ext = (rec.recording_url || "").split('.').pop()?.split(/\?|#/)[0] || 'webm';
+                                  a.download = `${rec.title || rec.id}.${ext}`;
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  a.remove();
+                                  URL.revokeObjectURL(url);
+                                } catch (err) {
+                                  // Fallback: attempt to generate signed URL from Supabase storage
+                                  try {
+                                    const storagePrefix = "/storage/v1/object/public/";
+                                    const idx = rec.recording_url!.indexOf(storagePrefix);
+                                    if (idx !== -1) {
+                                      const path = rec.recording_url!.substring(idx + storagePrefix.length);
+                                      const parts = path.split("/");
+                                      const bucket = parts.shift()!;
+                                      const objectPath = parts.join("/");
+                                      const { data, error } = await supabase.storage
+                                        .from(bucket)
+                                        .createSignedUrl(objectPath, 60);
+                                      if (error) throw error;
+                                      const signedUrl = data?.signedUrl;
+                                      if (!signedUrl) throw new Error("No signed url");
+                                      window.open(signedUrl, "_blank");
+                                    } else {
+                                      throw err;
+                                    }
+                                  } catch (err2) {
+                                    console.error("Download failed:", err2);
+                                    alert("Failed to download recording. Check console for details.");
+                                  }
+                                }
+                              }}
+                            >
+                              <Download className="w-3 h-3 mr-1" />
+                              Download
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </CardContent>
