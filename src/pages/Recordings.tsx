@@ -90,42 +90,28 @@ const Recordings = () => {
   const handleDownload = async (rec: Recording | null) => {
     if (!rec?.recording_url) return;
     try {
-      const resp = await fetch(rec.recording_url);
-      if (!resp.ok) throw new Error("Fetch failed");
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const ext = (rec.recording_url || "").split('.').pop()?.split(/\?|#/)[0] || 'webm';
-      const safeTitle = (rec.title || rec.id).replace(/[^a-z0-9-_\. ]/gi, '_');
-      a.download = `${safeTitle}.${ext}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      try {
-        const storagePrefix = "/storage/v1/object/public/";
-        const idx = rec.recording_url.indexOf(storagePrefix);
-        if (idx !== -1) {
-          const path = rec.recording_url.substring(idx + storagePrefix.length);
-          const parts = path.split("/");
-          const bucket = parts.shift()!;
-          const objectPath = parts.join("/");
-          const { data, error } = await supabase.storage
-            .from(bucket)
-            .createSignedUrl(objectPath, 60);
-          if (error) throw error;
-          const signedUrl = data?.signedUrl;
-          if (!signedUrl) throw new Error("No signed url");
-          window.open(signedUrl, "_blank");
-        } else {
-          throw err;
-        }
-      } catch (err2) {
-        console.error("Download failed:", err2);
-        alert("Failed to download recording. Check console for details.");
+      const { data: session } = await supabase.auth.getSession();
+      if (!session?.session?.access_token) {
+        alert('Please sign in to download recordings.');
+        return;
       }
+
+      const response = await fetch(`/api/download-recording/${rec.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session.session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to get download URL');
+      }
+
+      const { downloadUrl } = await response.json();
+      window.open(downloadUrl, '_blank');
+    } catch (err) {
+      console.error('Download failed:', err);
+      alert('Failed to download recording. Check console for details.');
     }
   };
 
@@ -218,47 +204,7 @@ const Recordings = () => {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={async () => {
-                                // Try direct download first
-                                try {
-                                  const resp = await fetch(rec.recording_url!);
-                                  if (!resp.ok) throw new Error("Fetch failed");
-                                  const blob = await resp.blob();
-                                  const url = URL.createObjectURL(blob);
-                                  const a = document.createElement("a");
-                                  a.href = url;
-                                  const ext = (rec.recording_url || "").split('.').pop()?.split(/\?|#/)[0] || 'webm';
-                                  a.download = `${rec.title || rec.id}.${ext}`;
-                                  document.body.appendChild(a);
-                                  a.click();
-                                  a.remove();
-                                  URL.revokeObjectURL(url);
-                                } catch (err) {
-                                  // Fallback: attempt to generate signed URL from Supabase storage
-                                  try {
-                                    const storagePrefix = "/storage/v1/object/public/";
-                                    const idx = rec.recording_url!.indexOf(storagePrefix);
-                                    if (idx !== -1) {
-                                      const path = rec.recording_url!.substring(idx + storagePrefix.length);
-                                      const parts = path.split("/");
-                                      const bucket = parts.shift()!;
-                                      const objectPath = parts.join("/");
-                                      const { data, error } = await supabase.storage
-                                        .from(bucket)
-                                        .createSignedUrl(objectPath, 60);
-                                      if (error) throw error;
-                                      const signedUrl = data?.signedUrl;
-                                      if (!signedUrl) throw new Error("No signed url");
-                                      window.open(signedUrl, "_blank");
-                                    } else {
-                                      throw err;
-                                    }
-                                  } catch (err2) {
-                                    console.error("Download failed:", err2);
-                                    alert("Failed to download recording. Check console for details.");
-                                  }
-                                }
-                              }}
+                              onClick={() => handleDownload(rec)}
                             >
                               <Download className="w-3 h-3 mr-1" />
                               Download
