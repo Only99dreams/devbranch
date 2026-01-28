@@ -94,10 +94,27 @@ export function StreamPlayer({
   const activeStream = remoteStream || stream;
 
   useEffect(() => {
-    if (videoRef.current && activeStream) {
-      videoRef.current.srcObject = activeStream;
-      videoRef.current.play().catch(console.error);
+    let mounted = true;
+    const el = videoRef.current;
+    if (el && activeStream) {
+      el.srcObject = activeStream;
+      (async () => {
+        try {
+          await el.play();
+          if (mounted) setIsPlaying(true);
+        } catch (err: any) {
+          // Ignore AbortError which happens when play() is interrupted by pause()
+          if (err && err.name === "AbortError") {
+            console.warn("Video play() was aborted by a pause() call.", err);
+          } else {
+            console.error(err);
+          }
+        }
+      })();
     }
+    return () => {
+      mounted = false;
+    };
   }, [activeStream]);
 
   useEffect(() => {
