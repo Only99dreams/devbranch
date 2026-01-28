@@ -79,15 +79,12 @@ export function useLiveStream() {
       console.log(`Received answer from viewer ${from}`);
       const pc = peerConnectionsRef.current.get(from)!;
       await pc.setRemoteDescription(new RTCSessionDescription(signal));
-    } else if (type === "ice-candidate") {
+    } else if (type === "ice-candidate" && peerConnectionsRef.current.has(from)) {
       // Viewer sent ICE candidate
       console.log(`Received ICE candidate from viewer ${from}`);
-      const pc = peerConnectionsRef.current.get(from);
-      if (pc && pc.remoteDescription) {
+      const pc = peerConnectionsRef.current.get(from)!;
+      if (pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(signal));
-      } else {
-        // Store ICE candidate for later if peer connection not ready
-        console.log(`Storing ICE candidate for later`);
       }
     }
   }, [state.isStreaming, state.externalStreamUrl]);
@@ -146,25 +143,62 @@ export function useLiveStream() {
     }
   }, [state.streamKey]);
 
-  const setupSignaling = useCallback(() => {
-    if (!state.streamId || !state.streamKey) {
-      console.log(`Cannot setup signaling: streamId=${state.streamId}, streamKey=${state.streamKey}`);
+  const setupSignaling = useCallback((streamId?: string) => {
+    const targetStreamId = streamId || state.streamId;
+    if (!targetStreamId || !state.streamKey) {
+      console.log(`Cannot setup signaling: streamId=${targetStreamId}, streamKey=${state.streamKey}`);
       return;
     }
 
-    console.log(`Setting up signaling for stream ${state.streamId}`);
+    console.log(`Setting up signaling for stream ${targetStreamId}`);
+    
+    // Listen for new viewers joining via database changes
+    const viewersChannel = supabase
+      .channel(`live-viewers-${targetStreamId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "live_viewers",
+          filter: `stream_id=eq.${targetStreamId}`,
+        },
+        (payload) => {
+          console.log(`Broadcaster detected new viewer:`, payload.new);
+          const viewer = payload.new as any;
+          // Only create connection if we have a local stream and viewer is joining now
+          if (localStreamRef.current && state.isStreaming && !state.externalStreamUrl) {
+            console.log(`Creating peer connection for viewer ${viewer.anon_id || viewer.user_id}`);
+            createPeerConnection(viewer.anon_id || viewer.user_id);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log(`Broadcaster viewers channel status: ${status}`);
+      });
+
+    // Also set up broadcast channel for WebRTC signaling
     channelRef.current = supabase
-      .channel(`live-stream-${state.streamId}`)
+      .channel(`live-stream-${targetStreamId}`)
       .on("broadcast", { event: "viewer-signal" }, handleViewerSignal)
       .subscribe((status) => {
         console.log(`Broadcaster signaling channel status: ${status}`);
       });
+
+    // Store viewers channel for cleanup
+    (channelRef as any).viewersChannel = viewersChannel;
   }, [state.streamId, state.streamKey, handleViewerSignal]);
 
   const cleanupSignaling = useCallback(() => {
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
       channelRef.current = null;
+    }
+
+    // Clean up viewers channel
+    if ((channelRef as any).viewersChannel) {
+      supabase.removeChannel((channelRef as any).viewersChannel);
+      (channelRef as any).viewersChannel = null;
     }
 
     // Close all peer connections
@@ -174,19 +208,23 @@ export function useLiveStream() {
 
   const startStream = useCallback(async (title: string, description?: string, externalUrl?: string) => {
     try {
+      console.log(`Broadcaster starting stream with title: ${title}, externalUrl: ${externalUrl}`);
       const generatedStreamKey = generateId();
       let stream: MediaStream | null = null;
 
       // Only get user media if not using external source
       if (!externalUrl) {
+        console.log(`Broadcaster getting user media`);
         stream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
         localStreamRef.current = stream;
+        console.log(`Broadcaster got media stream with ${stream.getTracks().length} tracks`);
       }
 
       // Create stream record in database
+      console.log(`Broadcaster creating stream record`);
       const { data: streamData, error } = await supabase
         .from("live_streams")
         .insert({
@@ -201,7 +239,12 @@ export function useLiveStream() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error(`Broadcaster failed to create stream record:`, error);
+        throw error;
+      }
+
+      console.log(`Broadcaster created stream with ID: ${streamData.id}`);
 
       setState(prev => ({
         ...prev,
@@ -213,7 +256,10 @@ export function useLiveStream() {
 
       // Set up WebRTC signaling for viewers (only for camera streams, not external)
       if (!externalUrl) {
-        setupSignaling();
+        console.log(`Broadcaster setting up signaling for camera stream`);
+        setupSignaling(streamData.id);
+      } else {
+        console.log(`Broadcaster skipping signaling for external stream`);
       }
 
       toast({
@@ -461,71 +507,73 @@ export function useStreamViewer(streamId: string | null) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const viewerId = useRef<string>(generateId());
   const pendingViewerCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const viewerRecordKeyRef = useRef<{ stream_id: string; user_id: string | null; anon_id: string | null } | null>(null);
   const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const createPeerConnection = useCallback(() => {
-    if (peerConnectionRef.current) return;
-
-    console.log(`Creating peer connection for viewer`);
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 });
-    peerConnectionRef.current = pc;
-    
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        console.log(`Viewer sending ICE candidate`);
-        channelRef.current?.send({
-          type: "broadcast",
-          event: "viewer-signal",
-          payload: { type: "ice-candidate", from: viewerId.current, to: null, signal: event.candidate }
-        });
-      }
-    };
-    
-    pc.ontrack = (event) => {
-      console.log("Viewer received track:", event.track.kind);
-      setRemoteStream(event.streams[0]);
-      setIsConnected(true);
-      setIsConnecting(false);
-      // Clear timeout on successful connection
-      if (connectionTimeoutRef.current) {
-        clearTimeout(connectionTimeoutRef.current);
-        connectionTimeoutRef.current = null;
-      }
-    };
-    
-    pc.onconnectionstatechange = () => {
-      console.log(`Viewer connection state: ${pc?.connectionState}`);
-      if (pc?.connectionState === "connected") {
-        setIsConnected(true);
-        setIsConnecting(false);
-      } else if (pc?.connectionState === "disconnected" || pc?.connectionState === "failed") {
-        setIsConnected(false);
-        setRemoteStream(null);
-        setIsConnecting(false);
-      }
-    };
-  }, []);
+  const isConnectingRef = useRef<boolean>(false); // Use ref to avoid stale closures
 
   const handleBroadcasterSignal = useCallback(async (payload: any) => {
     const { type, from, to, signal } = payload.payload;
     
-    console.log(`Viewer received ${type} signal from broadcaster`);
-    
-    const pc = peerConnectionRef.current;
-    if (!pc) {
-      console.log(`No peer connection available`);
+    // Only process signals meant for us
+    if (to && to !== viewerId.current) {
+      console.log(`Ignoring signal for ${to}, we are ${viewerId.current}`);
       return;
     }
+    
+    console.log(`Viewer received ${type} signal from broadcaster`);
+    
+    let pc = peerConnectionRef.current;
     
     if (type === "offer") {
       // Broadcaster is sending offer
       console.log(`Received offer from broadcaster ${from}`);
+      if (!pc) {
+        console.log(`Creating peer connection for viewer`);
+        pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 });
+        peerConnectionRef.current = pc;
+        
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            console.log(`Viewer sending ICE candidate`);
+            channelRef.current?.send({
+              type: "broadcast",
+              event: "viewer-signal",
+              payload: { type: "ice-candidate", from: viewerId.current, to: from, signal: event.candidate }
+            });
+          }
+        };
+        
+        pc.ontrack = (event) => {
+          console.log("Viewer received track:", event.track.kind);
+          setRemoteStream(event.streams[0]);
+          setIsConnected(true);
+          setIsConnecting(false);
+          isConnectingRef.current = false;
+          // Clear timeout on successful connection
+          if (connectionTimeoutRef.current) {
+            clearTimeout(connectionTimeoutRef.current);
+            connectionTimeoutRef.current = null;
+          }
+        };
+        
+        pc.onconnectionstatechange = () => {
+          console.log(`Viewer connection state: ${pc?.connectionState}`);
+          if (pc?.connectionState === "connected") {
+            setIsConnected(true);
+            setIsConnecting(false);
+            isConnectingRef.current = false;
+          } else if (pc?.connectionState === "disconnected" || pc?.connectionState === "failed") {
+            setIsConnected(false);
+            setRemoteStream(null);
+            setIsConnecting(false);
+            isConnectingRef.current = false;
+          }
+        };
+      }
       
       await pc.setRemoteDescription(new RTCSessionDescription(signal));
       console.log(`Set remote description, creating answer`);
@@ -536,7 +584,7 @@ export function useStreamViewer(streamId: string | null) {
       channelRef.current?.send({
         type: "broadcast",
         event: "viewer-signal",
-        payload: { type: "answer", from: viewerId.current, signal: answer }
+        payload: { type: "answer", from: viewerId.current, to: from, signal: answer }
       });
       if (pendingViewerCandidatesRef.current.length) {
         console.log(`Processing ${pendingViewerCandidatesRef.current.length} pending ICE candidates`);
@@ -545,7 +593,7 @@ export function useStreamViewer(streamId: string | null) {
         }
         pendingViewerCandidatesRef.current = [];
       }
-    } else if (type === "ice-candidate") {
+    } else if (type === "ice-candidate" && pc) {
       console.log(`Processing ICE candidate from broadcaster`);
       if (pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(signal));
@@ -556,17 +604,14 @@ export function useStreamViewer(streamId: string | null) {
   }, []);
 
   const connect = useCallback(() => {
-    if (!streamId || isConnecting || isConnected) {
-      console.log(`Cannot connect: streamId=${streamId}, isConnecting=${isConnecting}, isConnected=${isConnected}`);
+    if (!streamId || isConnectingRef.current || isConnected) {
+      console.log(`Cannot connect: streamId=${streamId}, isConnecting=${isConnectingRef.current}, isConnected=${isConnected}`);
       return;
     }
 
     console.log(`Viewer connecting to stream ${streamId}`);
     setIsConnecting(true);
-    setConnectionError(null);
-
-    // Create peer connection first
-    createPeerConnection();
+    isConnectingRef.current = true;
 
     // Set up signaling channel
     channelRef.current = supabase
@@ -599,11 +644,18 @@ export function useStreamViewer(streamId: string | null) {
           connectionTimeoutRef.current = setTimeout(() => {
             console.log("Connection timeout - giving up");
             setIsConnecting(false);
-            setConnectionError("Connection failed. Please check your internet connection and try again.");
+            isConnectingRef.current = false;
+            setIsConnected(false); // Also reset connected state
+            // Clean up peer connection
+            if (peerConnectionRef.current) {
+              peerConnectionRef.current.close();
+              peerConnectionRef.current = null;
+            }
+            setRemoteStream(null);
           }, 30000); // 30 second timeout
         }
       });
-  }, [streamId, isConnecting, isConnected, handleBroadcasterSignal, user?.id, createPeerConnection]);
+  }, [streamId, handleBroadcasterSignal, user?.id]);
 
   const disconnect = useCallback(() => {
     // Clear connection timeout
@@ -625,7 +677,7 @@ export function useStreamViewer(streamId: string | null) {
     setRemoteStream(null);
     setIsConnected(false);
     setIsConnecting(false);
-    setConnectionError(null);
+    isConnectingRef.current = false;
     
     // Mark viewer left
     const key = viewerRecordKeyRef.current;
@@ -654,7 +706,6 @@ export function useStreamViewer(streamId: string | null) {
     remoteStream,
     isConnected,
     isConnecting,
-    connectionError,
     connect,
     disconnect,
   };
