@@ -1,12 +1,14 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Radio, Heart } from "lucide-react";
+import { Radio, Heart, Download } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { usePWAInstall } from "@/hooks/usePWAInstall";
 
 export function HeroSection() {
   const [liveStream, setLiveStream] = useState<{ title: string } | null>(null);
   const [stats, setStats] = useState({ users: 0, sessions: 0, countries: 50 });
+  const { isInstallable, installPWA } = usePWAInstall();
 
   useEffect(() => {
     fetchLiveStream();
@@ -81,6 +83,16 @@ export function HeroSection() {
                 Join Prayer
               </Button>
             </Link>
+            {isInstallable && (
+              <Button
+                onClick={installPWA}
+                size="lg"
+                className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 shadow-lg font-semibold"
+              >
+                <Download className="w-5 h-5" />
+                Install App
+              </Button>
+            )}
           </div>
 
           {/* Stats */}
