@@ -36,16 +36,22 @@ export function PrayerRequestsManagement() {
   const [requests, setRequests] = useState<PrayerRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRequest, setSelectedRequest] = useState<PrayerRequest | null>(null);
+  const [filterRegistration, setFilterRegistration] = useState<string | null>(null);
+  const [registrationCounts, setRegistrationCounts] = useState({ streamsOfHealing: 0, harvestOfBabies: 0 });
 
   useEffect(() => {
     fetchRequests();
+    fetchRegistrationCounts();
   }, []);
 
-  const fetchRequests = async () => {
-    const { data, error } = await supabase
-      .from("prayer_requests")
-      .select("*")
-      .order("created_at", { ascending: false });
+  const fetchRequests = async (filter?: string | null) => {
+    const activeFilter = typeof filter === "undefined" ? filterRegistration : filter;
+    let query = supabase.from("prayer_requests").select("*").order("created_at", { ascending: false });
+    if (activeFilter) {
+      query = query.ilike("request_text", `%Registration for ${activeFilter}%` as any);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       toast({ title: "Error", description: "Failed to fetch prayer requests", variant: "destructive" });
@@ -53,6 +59,19 @@ export function PrayerRequestsManagement() {
       setRequests(data || []);
     }
     setLoading(false);
+  };
+
+  const fetchRegistrationCounts = async () => {
+    try {
+      const [{ count: sCount }, { count: hCount }] = await Promise.all([
+        supabase.from("prayer_requests").select("id", { count: "exact", head: true }).ilike("request_text", "%Registration for Streams of Healing%"),
+        supabase.from("prayer_requests").select("id", { count: "exact", head: true }).ilike("request_text", "%Registration for Harvest of Babies%"),
+      ]);
+
+      setRegistrationCounts({ streamsOfHealing: sCount || 0, harvestOfBabies: hCount || 0 });
+    } catch (error) {
+      console.error("Failed to fetch registration counts:", error);
+    }
   };
 
   const updateStatus = async (id: string, status: PrayerStatus) => {
@@ -120,6 +139,19 @@ export function PrayerRequestsManagement() {
         </CardTitle>
       </CardHeader>
       <CardContent>
+        <div className="flex items-center gap-4 mb-6">
+          <div className="flex items-center gap-2">
+            <Badge className="bg-emerald-600 text-white">Streams of Healing: {registrationCounts.streamsOfHealing}</Badge>
+            <Button size="sm" variant="ghost" onClick={() => { const target = filterRegistration === "Streams of Healing" ? null : "Streams of Healing"; setFilterRegistration(target); fetchRequests(target); }}>View</Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge className="bg-pink-600 text-white">Harvest of Babies: {registrationCounts.harvestOfBabies}</Badge>
+            <Button size="sm" variant="ghost" onClick={() => { const target = filterRegistration === "Harvest of Babies" ? null : "Harvest of Babies"; setFilterRegistration(target); fetchRequests(target); }}>View</Button>
+          </div>
+          <div className="ml-auto">
+            <Button size="sm" variant="outline" onClick={() => { setFilterRegistration(null); fetchRequests(null); }}>Clear Filter</Button>
+          </div>
+        </div>
         {loading ? (
           <div className="text-center py-8 text-muted-foreground">Loading prayer requests...</div>
         ) : requests.length === 0 ? (

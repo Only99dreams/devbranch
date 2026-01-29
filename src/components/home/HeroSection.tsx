@@ -4,11 +4,14 @@ import { Radio, Heart, Download } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { usePWAInstall } from "@/hooks/usePWAInstall";
+import { SessionRegistrationForm } from "@/components/prayer/SessionRegistrationForm";
 
 export function HeroSection() {
   const [liveStream, setLiveStream] = useState<{ title: string } | null>(null);
   const [stats, setStats] = useState({ users: 0, sessions: 0, countries: 50 });
   const { isInstallable, installPWA } = usePWAInstall();
+  const [openStreamsOfHealing, setOpenStreamsOfHealing] = useState(false);
+  const [openHarvestOfBabies, setOpenHarvestOfBabies] = useState(false);
 
   useEffect(() => {
     fetchLiveStream();
@@ -83,6 +86,12 @@ export function HeroSection() {
                 Join Prayer
               </Button>
             </Link>
+            <Button size="lg" className="w-full sm:w-auto bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg font-semibold" onClick={() => setOpenStreamsOfHealing(true)}>
+              Streams of Healing
+            </Button>
+            <Button size="lg" className="w-full sm:w-auto bg-pink-600 text-white hover:bg-pink-700 shadow-lg font-semibold" onClick={() => setOpenHarvestOfBabies(true)}>
+              Harvest of Babies
+            </Button>
             {isInstallable && (
               <Button
                 onClick={installPWA}
@@ -119,6 +128,9 @@ export function HeroSection() {
           <div className="w-1.5 h-3 rounded-full bg-primary-foreground/50 animate-pulse" />
         </div>
       </div>
+      {/* Registration Forms for featured sessions */}
+      <SessionRegistrationForm open={openStreamsOfHealing} onOpenChange={setOpenStreamsOfHealing} sessionTitle="Streams of Healing" />
+      <SessionRegistrationForm open={openHarvestOfBabies} onOpenChange={setOpenHarvestOfBabies} sessionTitle="Harvest of Babies" />
     </section>
   );
 }
