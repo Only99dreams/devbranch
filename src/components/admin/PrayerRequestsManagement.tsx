@@ -64,7 +64,7 @@ export function PrayerRequestsManagement() {
   const fetchRegistrationCounts = async () => {
     try {
       const [{ count: sCount }, { count: hCount }] = await Promise.all([
-        supabase.from("prayer_requests").select("id", { count: "exact", head: true }).ilike("request_text", "%Registration for Streams of Healing%"),
+        supabase.from("prayer_requests").select("id", { count: "exact", head: true }).ilike("request_text", "%Registration for Healing in His Wings%"),
         supabase.from("prayer_requests").select("id", { count: "exact", head: true }).ilike("request_text", "%Registration for Harvest of Babies%"),
       ]);
 
@@ -141,8 +141,8 @@ export function PrayerRequestsManagement() {
       <CardContent>
         <div className="flex items-center gap-4 mb-6">
           <div className="flex items-center gap-2">
-            <Badge className="bg-emerald-600 text-white">Streams of Healing: {registrationCounts.streamsOfHealing}</Badge>
-            <Button size="sm" variant="ghost" onClick={() => { const target = filterRegistration === "Streams of Healing" ? null : "Streams of Healing"; setFilterRegistration(target); fetchRequests(target); }}>View</Button>
+            <Badge className="bg-emerald-600 text-white">Healing in His Wings: {registrationCounts.streamsOfHealing}</Badge>
+            <Button size="sm" variant="ghost" onClick={() => { const target = filterRegistration === "Healing in His Wings" ? null : "Healing in His Wings"; setFilterRegistration(target); fetchRequests(target); }}>View</Button>
           </div>
           <div className="flex items-center gap-2">
             <Badge className="bg-pink-600 text-white">Harvest of Babies: {registrationCounts.harvestOfBabies}</Badge>

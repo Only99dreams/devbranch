@@ -87,7 +87,7 @@ export function HeroSection() {
               </Button>
             </Link>
             <Button size="lg" className="w-full sm:w-auto bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg font-semibold" onClick={() => setOpenStreamsOfHealing(true)}>
-              Streams of Healing
+              Healing in His Wings
             </Button>
             <Button size="lg" className="w-full sm:w-auto bg-pink-600 text-white hover:bg-pink-700 shadow-lg font-semibold" onClick={() => setOpenHarvestOfBabies(true)}>
               Harvest of Babies
@@ -129,7 +129,7 @@ export function HeroSection() {
         </div>
       </div>
       {/* Registration Forms for featured sessions */}
-      <SessionRegistrationForm open={openStreamsOfHealing} onOpenChange={setOpenStreamsOfHealing} sessionTitle="Streams of Healing" />
+      <SessionRegistrationForm open={openStreamsOfHealing} onOpenChange={setOpenStreamsOfHealing} sessionTitle="Healing in His Wings" />
       <SessionRegistrationForm open={openHarvestOfBabies} onOpenChange={setOpenHarvestOfBabies} sessionTitle="Harvest of Babies" />
     </section>
   );
